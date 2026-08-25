@@ -4,6 +4,8 @@ import { existsSync } from 'node:fs';
 import { extname, join } from 'node:path';
 
 const port = Number(process.env.PORT || 4178);
+const host = process.env.HOST || '127.0.0.1';
+const maxBodyBytes = 64 * 1024;
 const root = new URL('.', import.meta.url).pathname;
 const publicDir = join(root, 'public');
 const stateFile = join(root, 'data', 'state.json');
@@ -19,16 +21,29 @@ async function getState() {
 }
 async function saveState(state) {
   await mkdir(join(root, 'data'), { recursive: true });
-  await writeFile(stateFile, JSON.stringify(state, null, 2));
+  const temporary = `${stateFile}.tmp`;
+  await writeFile(temporary, JSON.stringify(state, null, 2));
+  const { rename } = await import('node:fs/promises');
+  await rename(temporary, stateFile);
 }
 function json(res, status, body) {
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
+  res.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-store',
+    'x-content-type-options': 'nosniff'
+  });
   res.end(JSON.stringify(body));
 }
 async function body(req) {
   let text = '';
-  for await (const chunk of req) text += chunk;
-  return text ? JSON.parse(text) : {};
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > maxBodyBytes) throw Object.assign(new Error('Request body is too large.'), { statusCode: 413 });
+    text += chunk;
+  }
+  try { return text ? JSON.parse(text) : {}; }
+  catch { throw Object.assign(new Error('Request body must be valid JSON.'), { statusCode: 400 }); }
 }
 async function ollama(path, options = {}) {
   // Local models may take longer to load or respond on consumer GPUs. Keep the
@@ -63,8 +78,10 @@ const app = http.createServer(async (req, res) => {
       const health = await ollama('/api/tags');
       if (!health.ok) return json(res, 503, { error: 'Ollama is not available. Start Ollama, then download a local model.' });
       const tags = await health.json();
-      const selected = model || tags.models?.[0]?.name;
+      const installed = (tags.models || []).map((entry) => entry.name).filter(Boolean);
+      const selected = model || installed[0];
       if (!selected) return json(res, 503, { error: 'Ollama has no local model yet.' });
+      if (!installed.includes(selected)) return json(res, 400, { error: 'Requested model is not installed locally.' });
       const response = await ollama('/api/chat', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ model: selected, stream: false, messages: [
@@ -78,8 +95,12 @@ const app = http.createServer(async (req, res) => {
     }
     const file = url.pathname === '/' ? join(publicDir, 'index.html') : join(publicDir, url.pathname);
     if (!file.startsWith(publicDir) || !existsSync(file)) return json(res, 404, { error: 'Not found' });
-    res.writeHead(200, { 'content-type': mime[extname(file)] || 'application/octet-stream' });
+    res.writeHead(200, {
+      'content-type': mime[extname(file)] || 'application/octet-stream',
+      'cache-control': extname(file) === '.html' ? 'no-store' : 'public, max-age=3600',
+      'x-content-type-options': 'nosniff'
+    });
     res.end(await readFile(file));
-  } catch (error) { json(res, 500, { error: error.message || 'OpenBot failed unexpectedly.' }); }
+  } catch (error) { json(res, error.statusCode || 500, { error: error.message || 'OpenBot failed unexpectedly.' }); }
 });
-app.listen(port, () => console.log(`OpenBot is ready at http://127.0.0.1:${port}`));
+app.listen(port, host, () => console.log(`OpenBot is ready at http://${host}:${port}`));
