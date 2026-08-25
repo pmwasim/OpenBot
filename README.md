@@ -1,31 +1,63 @@
 # OpenBot
 
-OpenBot is a free and open-source, self-hostable, local-first control-plane preview inspired by cloud agent teammates. It supplies a private control dashboard, an Ollama-backed task conversation, approval gates, a durable task/event store, a CLI skeleton, persisted approvals, and a repeatable release harness.
+OpenBot is a free, open-source, self-hostable alternative to cloud agent products. It is local-first: the daemon, task history, approvals, workspaces, and audit bundles stay on the operator's machine by default, with Ollama as the local model path.
 
-## What it does now
+## Included in this release foundation
 
-- Detects whether Ollama is running and lists installed local models.
-- Sends planning tasks to the first available Ollama model.
-- Keeps a local approval queue; sending, publishing, purchases, deletion, and production changes should remain approval-gated.
-- Presents the architectural seams needed for browser and desktop workers, while deliberately leaving those disabled until they can be isolated and permissioned.
-- Uses safe local defaults: loopback binding, bounded JSON requests, model allowlisting, atomic event-log writes, and security response headers.
+- Durable append-only task/event storage with legacy migration and atomic writes.
+- Action-bound policy decisions and one-time approvals for file writes/deletes, shell execution, browser fetches, and consequential task kinds.
+- Bounded file, shell, and browser workers with task-workspace containment, symlink escape checks, output/time limits, and private-network refusal.
+- Recoverable executor lifecycle with pause, cancel, resume, duplicate-start protection, and shutdown recovery.
+- Local HTTP API, SSE task streams, redacted audit export, and a responsive operator console.
+- CLI parity for task creation, approval, execution, recovery, logs, inspection, export, configuration, and health checks.
+- Ubuntu user installer and desktop launcher. No OpenBot account, hosted service, subscription, or paid CI is required.
 
-## Release checks
-
-Run the production baseline harness before publishing a release:
+## Zero-spend local run
 
 ```bash
 npm run check
+npm start
 ```
 
-The harness starts an isolated test server and verifies required files, health/state endpoints, model validation, request-size limits, and path traversal rejection. It does not claim that browser, shell, or desktop workers exist; those remain planned product work in [PRD.md](./PRD.md).
+Open `http://127.0.0.1:4178`. Install Ollama separately if you want local model chat and planning; task control, approvals, workers, audit export, and CLI administration do not require a hosted OpenBot service.
 
-## Run
+For Ubuntu desktop installation:
 
-1. Install and start Ollama, then download a small local model such as a Qwen 7–8B quantized model.
-2. In this folder, run `npm start`.
-3. Open `http://127.0.0.1:4178`.
+```bash
+./scripts/install-ubuntu.sh
+```
 
-The server binds to loopback by default. The daemon refuses a non-loopback HOST unless OPENBOT_ALLOW_NON_LOOPBACK=1 is set; the preview still has no authentication and must not be exposed to the public internet. CLI: node cli/openbot.mjs doctor|run|list|show|approve|reject|pause|cancel|resume|logs|config.
+See [docs/ubuntu.md](docs/ubuntu.md) for the local model and configuration path. Copy [.env.example](.env.example) to your shell environment; never commit provider keys.
 
-OpenBot contains no automatic shell, browser, or desktop execution in this first version. That separation is intentional: a real worker should be isolated from the primary desktop and require explicit approval rules.
+## CLI
+
+```bash
+node cli/openbot.mjs doctor
+node cli/openbot.mjs run --kind plan "Prepare a release checklist"
+node cli/openbot.mjs run --kind file --action-json '{"tool":"file.write","path":"notes.txt","content":"draft"}' "Write a local note"
+node cli/openbot.mjs list
+node cli/openbot.mjs show <task-id>
+node cli/openbot.mjs approve <approval-id>
+node cli/openbot.mjs pause <task-id>
+node cli/openbot.mjs resume <task-id>
+node cli/openbot.mjs export <task-id>
+```
+
+The structured action is the exact payload evaluated by policy and, after approval, sent to the worker. Free-form chat text is never treated as a command. CLI output is redacted for secret-shaped fields.
+
+## Safety boundary
+
+OpenBot binds to loopback by default. Setting `OPENBOT_ALLOW_NON_LOOPBACK=1` is an explicit unsafe override, not authentication, and must not be used on an untrusted network. Local-only mode blocks the browser worker and non-local providers. Browser fetches require an explicit host allowlist and reject credentials, loopback, private, and cloud-metadata targets.
+
+On Linux, shell workers require rootless `bubblewrap` isolation by default and run with the task workspace mounted at `/workspace` and no network namespace. On non-Linux development hosts, the default is the bounded allowlist mode; set `OPENBOT_SANDBOX_MODE=required` to fail closed instead. Production operators should run the daemon as an unprivileged user and apply the host-level resource controls documented in [PRD.md](PRD.md). The repository deliberately does not claim unrestricted desktop automation or managed-cloud parity with Grok Bot.
+
+## Verification and release
+
+```bash
+npm run check
+npm run release
+```
+
+The harness covers persistence, approval binding, worker boundaries, executor recovery, CLI parity, API/SSE execution, redacted export, request limits, traversal rejection, and loopback binding. A GitHub Release is publication, not a substitute for these checks.
+
+See [CHANGELOG.md](CHANGELOG.md), [docs/release-design.md](docs/release-design.md), and [PRD.md](PRD.md) for the implementation boundary and remaining product gates.
