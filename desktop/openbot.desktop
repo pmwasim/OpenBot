@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=OpenBot
-Comment=Free, local-first agent control
-Exec=env OPENBOT_ROOT=%k node %k/desktop/openbot.mjs
-Icon=utilities-terminal
-Terminal=false
-Categories=Utility;Development;
-StartupNotify=true

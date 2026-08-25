@@ -1,13 +1,13 @@
 # OpenBot Product Requirements Document
 
-**Status:** Implementation baseline for v0.2 release candidate
-**Version:** 0.2
-**Date:** 2026-08-26
+**Status:** Draft for implementation planning  
+**Version:** 0.1  
+**Date:** 2026-08-25  
 **Owner:** OpenBot product/engineering
 
 ## 1. Executive summary
 
-OpenBot is a free and open-source, self-hostable, local-first autonomous agent platform with a shared agent core, CLI, Ubuntu launcher, web UI, API, and bounded workers. It is being shipped as the first real-work release candidate for a credible free/open-source alternative to Grok Bot: useful local file and shell tasks, controlled browser fetches, explicit approvals, and auditable recovery while keeping deployment, data, model choice, provider credentials, permissions, and history under the operator's control.
+OpenBot is a free and open-source, self-hostable, local-first autonomous agent platform with a shared agent core, CLI, Ubuntu desktop app, web UI, API, and sandboxed workers. It should be a credible free/open-source alternative to Grok Bot: able to perform useful computer, browser, file, and research tasks while keeping deployment, data, model choice, provider credentials, permissions, and audit history under the operator's control.
 
 OpenBot is not yet better than Grok Bot. The current MVP provides an Ollama-backed chat endpoint, health checks, a local dashboard, and persisted approval/routine state, but it does not execute shell, browser, desktop, or file work. This PRD defines the smallest credible path from that prototype to a real product.
 
@@ -67,20 +67,24 @@ OpenBot should provide a practical middle path: real work through isolated worke
 
 ### Verified strengths
 
-- The daemon persists an append-only event log with migration and atomic replacement, reconstructing task and approval projections after reopen.
-- File, shell, and browser workers enforce task-workspace, allowlist, timeout, output, and local/private-network boundaries; Linux shell execution can fail closed unless bubblewrap is present.
-- The executor proves one-time approval consumption, duplicate-start refusal, pause/cancel/resume transitions, and recoverable shutdown state.
-- The API and responsive operator console expose task creation, approvals, events, SSE, health, and redacted audit export; the CLI covers the same local operator path.
-- Ollama is the default provider and an OpenAI-compatible adapter is optional and blocked in local-only mode.
+- Node server starts successfully on port 4178.
+- JavaScript syntax checks pass for `server.mjs` and `public/app.js`.
+- Ollama health endpoint reports six installed models on the audited machine.
+- Chat request successfully returned a local model response.
+- Approval decisions persist to `data/state.json`.
+- Dashboard provides a coherent visual shell for health, approvals, routines, and chat.
 
 ### Material gaps and risks
 
-- `/api/chat` remains a model conversation endpoint; structured execution is intentionally submitted through task actions so free-form model text cannot become a command.
-- The Ubuntu desktop surface is a local launcher around the audited web console, not a separate native Tauri/Electron application.
+- `/api/chat` is a planning/chat proxy; it has no tool execution loop.
+- The system prompt says not to claim execution, but there is no structured action model that can enforce this distinction.
+- Approval records are seeded/static and are not attached to a proposed command, diff, tool call, or task.
 - Routines are displayed but cannot be created, scheduled, executed, paused, or retried.
-- No authentication, authorization, CSRF protection, rate limiting, or multi-user boundary exists; the daemon must remain loopback-only unless an operator adds a trusted fronting boundary.
-- MCP, skills, plugins, memory, scheduler, desktop input automation, and audit replay are future work.
-- The worker model is a bounded first release, not unrestricted OS control or managed-cloud reliability.
+- No authentication, authorization, CSRF protection, rate limiting, or multi-user boundary exists.
+- Provider credentials, OAuth, model routing, MCP, skills, plugins, memory, and audit replay are absent.
+- State is a single JSON file; concurrent writes, corruption recovery, migrations, and retention are not handled.
+- The HTTP server is suitable for a local prototype only; it must not be exposed to a LAN or internet before hardening.
+- The audited host has two GTX 1070 GPUs but substantial RAM/swap pressure; local model size and concurrency must be bounded.
 
 ## 8. User stories
 
@@ -289,4 +293,4 @@ Add desktop worker, memory scopes, remote self-hosted workers, team policies, se
 
 ## 16. Release decision
 
-Release v0.2 as an **OpenBot first real-work release candidate**, with the documented loopback, authentication, native desktop, routines, and extension limitations. Do not claim managed-cloud parity with Grok Bot. The next production-hardening gate is authenticated non-loopback access plus a native desktop client and benchmark evidence on a clean Ubuntu host with bubblewrap isolation.
+Do not market the current prototype as an autonomous Grok Bot alternative. Release it as an **OpenBot control-plane preview**. The first meaningful free/open-source alternative milestone is reached only when the CLI and desktop app can complete the benchmark tasks through isolated workers with approvals, recovery, and auditable evidence, using a no-account local installation.

@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
-import { request } from 'node:http';
-import { access, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { createServer, request } from 'node:http';
+import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -11,18 +12,6 @@ const base = `http://127.0.0.1:${port}`;
 const checks = [];
 const pass = (name) => { checks.push({ name, ok: true }); console.log(`PASS ${name}`); };
 
-async function expectFailure(operation, statusCode) {
-  try {
-    await operation();
-  } catch (error) {
-    if (statusCode !== undefined && error.statusCode !== statusCode) {
-      throw new Error(`expected status ${statusCode}, got ${error.statusCode || error.message}`);
-    }
-    return;
-  }
-  throw new Error('expected operation to fail');
-}
-
 async function http(path, options = {}) {
   return new Promise((resolve, reject) => {
     const req = request(`${base}${path}`, { ...options, headers: { 'content-type': 'application/json', ...(options.headers || {}) } }, (res) => {
@@ -30,26 +19,6 @@ async function http(path, options = {}) {
       res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: data }));
     });
     req.on('error', reject); req.end(options.body);
-  });
-}
-
-async function streamHttp(path, options = {}) {
-  return new Promise((resolve, reject) => {
-    const req = request(`${base}${path}`, { ...options, headers: { accept: 'text/event-stream', ...(options.headers || {}) } }, (res) => {
-      let data = '';
-      res.setEncoding('utf8');
-      const finish = () => resolve({ status: res.statusCode, headers: res.headers, body: data });
-      res.on('data', (chunk) => {
-        data += chunk;
-        if (data.includes('event: done')) {
-          req.destroy();
-          finish();
-        }
-      });
-      res.on('end', finish);
-    });
-    req.on('error', (error) => { if (error.code !== 'ECONNRESET') reject(error); });
-    req.end(options.body);
   });
 }
 
@@ -67,6 +36,23 @@ function runNode(args, env, { timeoutMs = 8000 } = {}) {
   });
 }
 
+
+function parseCliJson(output) {
+  const text = String(output || '').trim();
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start < 0 || end <= start) throw new Error(`CLI did not return JSON: ${text.slice(0, 400)}`);
+  return JSON.parse(text.slice(start, end + 1));
+}
+
+function listen(server) {
+  return new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+}
+
+function closeServer(server) {
+  return new Promise((resolve) => server.close(() => resolve()));
+}
+
 async function main() {
   const required = [
     'server.mjs',
@@ -78,30 +64,37 @@ async function main() {
     'lib/policy.mjs',
     'lib/provider.mjs',
     'lib/loopback.mjs',
+    'lib/engine.mjs',
+    'lib/runtime.mjs',
+    'lib/sandbox.mjs',
+    'lib/workers/file.mjs',
+    'lib/workers/shell.mjs',
+    'lib/workers/browser.mjs',
     'cli/openbot.mjs',
-    'desktop/openbot.mjs',
-    'desktop/openbot.desktop',
-    'scripts/install-ubuntu.sh',
-    'scripts/uninstall-ubuntu.sh',
-    '.env.example',
-    'CHANGELOG.md',
-    'docs/ubuntu.md'
+    'fixtures/file/notes.txt',
+    'fixtures/browser/research.html'
   ];
   for (const file of required) {
     await access(join(root, file)); pass(`required file: ${file}`);
   }
-  const syntaxChecks = [
-    await runNode(['--check', 'desktop/openbot.mjs'], {}),
-    await runNode(['--check', 'scripts/release_package.mjs'], {})
-  ];
-  if (syntaxChecks.some((result) => result.code !== 0)) throw new Error('release script syntax check failed');
-  pass('Ubuntu launcher and release artifacts are present and syntactically valid');
 
   const { decide, REQUIRE_APPROVAL_KINDS } = await import(pathToFileURL(join(root, 'lib/policy.mjs')).href);
   for (const kind of REQUIRE_APPROVAL_KINDS) {
     if (decide({ kind }) !== 'require_approval') throw new Error(`policy(${kind})`);
   }
   if (decide({ kind: 'plan' }) !== 'allow') throw new Error('policy(plan)');
+  if (decide({ tool: 'file.write', args: { path: 'notes.txt', contents: 'x' }, workspace: '/tmp/ws' }) !== 'require_approval') {
+    throw new Error('policy(file.write)');
+  }
+  if (decide({ tool: 'file.write', args: { path: '/tmp/escape.txt', contents: 'x' }, workspace: '/tmp/ws' }) !== 'deny') {
+    throw new Error('policy(file.write escape)');
+  }
+  if (decide({ tool: 'shell.exec', args: { command: 'uname' }, workspace: '/tmp/ws' }) !== 'allow') {
+    throw new Error('policy(shell uname)');
+  }
+  if (decide({ tool: 'shell.exec', args: { command: 'rm -rf /' }, workspace: '/tmp/ws' }) !== 'deny') {
+    throw new Error('policy(shell destructive)');
+  }
   pass('policy requires approval for send/publish/purchase/delete/production-change');
 
   const { assertBindHost, isLoopbackHost } = await import(pathToFileURL(join(root, 'lib/loopback.mjs')).href);
@@ -123,6 +116,9 @@ async function main() {
   pass('provider hub defaults to local Ollama and redacts secrets');
 
   const dataDir = await mkdtemp(join(tmpdir(), 'openbot-harness-'));
+  const fileWs = await mkdtemp(join(tmpdir(), 'openbot-file-'));
+  const shellWs = await mkdtemp(join(tmpdir(), 'openbot-shell-'));
+  const browserWs = await mkdtemp(join(tmpdir(), 'openbot-browser-'));
   const { openStore } = await import(pathToFileURL(join(root, 'lib/store.mjs')).href);
   try {
     await writeFile(join(dataDir, 'state.json'), JSON.stringify({
@@ -134,62 +130,8 @@ async function main() {
     if (!migrated.approvals.some((item) => item.id === 'legacy-1')) throw new Error('legacy approval missing');
     const created = await first.createTask({ prompt: 'phase0 durability', kind: 'plan' });
     if (!created.task?.id || created.task.status !== 'pending') throw new Error('create task');
-    const safeAction = await first.createTask({
-      prompt: 'list the workspace',
-      kind: 'file',
-      action: { tool: 'file.list', path: '.' }
-    });
-    if (safeAction.task.status !== 'pending' || !safeAction.task.actionDigest) throw new Error('safe action metadata');
-    const gated = await first.createTask({
-      prompt: 'send a draft',
-      kind: 'send',
-      action: { tool: 'shell.exec', command: 'echo approved' }
-    });
-    if (gated.policy !== 'require_approval' || !gated.approval?.taskId || !gated.approval?.actionId || !gated.approval?.actionDigest) throw new Error('bound approval');
-    await first.decideApproval(gated.approval.id, 'approved');
-    await first.consumeApproval(gated.approval.id, gated.approval.actionDigest);
-    await expectFailure(() => first.consumeApproval(gated.approval.id, gated.approval.actionDigest), 409);
-    const bundle = await first.exportTask(gated.task.id);
-    if (!bundle.events.some((event) => event.type === 'approval.consumed')) throw new Error('consume event missing');
-    pass('structured actions, approval digests, one-time consumption, and audit export');
-
-    const { createWorkerHub } = await import(pathToFileURL(join(root, 'lib/workers.mjs')).href);
-    const workspace = join(dataDir, 'workspaces', 'worker-task');
-    await mkdir(workspace, { recursive: true });
-    const workers = createWorkerHub({ dataDir, localOnly: true, sandboxMode: 'allowlist', limits: { maxOutputBytes: 256, shellTimeoutMs: 1000 } });
-    const context = { taskId: 'worker-task', workspace };
-    await workers.run({ tool: 'file.write', path: 'safe/note.txt', content: 'local worker' }, context);
-    const read = await workers.run({ tool: 'file.read', path: 'safe/note.txt' }, context);
-    if (read.output !== 'local worker') throw new Error('file worker read mismatch');
-    await workers.run({ tool: 'file.delete', path: 'safe/note.txt' }, context);
-    await expectFailure(() => workers.run({ tool: 'file.read', path: 'safe/note.txt' }, context), 404);
-    await expectFailure(() => workers.run({ tool: 'file.read', path: '../outside.txt' }, context), 400);
-    await writeFile(join(dataDir, 'outside.txt'), 'outside');
-    await symlink(join(dataDir, 'outside.txt'), join(workspace, 'escape.txt'));
-    await expectFailure(() => workers.run({ tool: 'file.read', path: 'escape.txt' }, context), 400);
-    await expectFailure(() => workers.run({ tool: 'browser.fetch', url: 'https://example.com' }, context), 403);
-    await expectFailure(() => workers.run({ tool: 'shell.exec', command: 'sleep', args: ['5'] }, context), 408);
-    pass('bounded workers enforce workspace, symlink, local-only, and timeout boundaries');
-
-    const { createExecutor } = await import(pathToFileURL(join(root, 'lib/executor.mjs')).href);
-    const executor = createExecutor({ store: first, workers });
-    const quick = await first.createTask({ prompt: 'create an evidence file', kind: 'file', action: { tool: 'file.write', path: 'evidence.txt', content: 'verified' } });
-    await first.decideApproval(quick.approval.id, 'approved');
-    await first.consumeApproval(quick.approval.id, quick.approval.actionDigest);
-    await executor.start(quick.task.id);
-    const completed = await first.getTask(quick.task.id);
-    if (completed.status !== 'completed') throw new Error(`executor status ${completed.status}`);
-    if (!(await first.listEvents({ taskId: quick.task.id })).some((event) => event.type === 'task.execution_result')) throw new Error('execution result missing');
-    const slow = await first.createTask({ prompt: 'long local operation', kind: 'shell', action: { tool: 'shell.exec', command: 'sleep', args: ['5'] } });
-    await first.decideApproval(slow.approval.id, 'approved');
-    await first.consumeApproval(slow.approval.id, slow.approval.actionDigest);
-    const running = executor.start(slow.task.id);
-    await expectFailure(() => executor.start(slow.task.id), 409);
-    await executor.shutdown();
-    await running.catch(() => {});
-    const recoverable = await first.getTask(slow.task.id);
-    if (recoverable.status !== 'recoverable') throw new Error(`shutdown status ${recoverable.status}`);
-    pass('executor runs approved actions once and marks shutdown work recoverable');
+    const gated = await first.createTask({ prompt: 'send a draft', kind: 'send' });
+    if (gated.policy !== 'require_approval' || !gated.approval?.taskId || !gated.approval?.actionId) throw new Error('bound approval');
     const second = await openStore({ dataDir });
     const reloaded = await second.getTask(created.task.id);
     if (!reloaded || reloaded.prompt !== 'phase0 durability') throw new Error('reload lost task');
@@ -201,19 +143,9 @@ async function main() {
     if (cliRun.code !== 0) throw new Error(cliRun.output || `cli run exit ${cliRun.code}`);
     const listed = await second.listTasks();
     if (!listed.some((task) => task.prompt === 'harness cli task')) throw new Error('cli run did not persist');
-    const cliAction = await runNode(['cli/openbot.mjs', 'run', '--kind', 'file', '--action-json', '{"tool":"file.write","path":"cli-evidence.txt","content":"cli verified"}', 'harness cli action'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
-    if (cliAction.code !== 0) throw new Error(cliAction.output || `cli action exit ${cliAction.code}`);
-    const cliApproval = JSON.parse(cliAction.output);
-    if (!cliApproval.approval?.id || cliApproval.task?.status !== 'waiting_approval') throw new Error('cli action did not create approval');
-    const cliApprove = await runNode(['cli/openbot.mjs', 'approve', cliApproval.approval.id], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
-    if (cliApprove.code !== 0) throw new Error(cliApprove.output || `cli approve exit ${cliApprove.code}`);
-    const cliCompleted = await second.getTask(cliApproval.task.id);
-    if (cliCompleted.status !== 'completed') throw new Error(`cli action status ${cliCompleted.status}`);
-    const cliExport = await runNode(['cli/openbot.mjs', 'export', cliApproval.task.id], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
-    if (cliExport.code !== 0 || !cliExport.output.includes('task.execution_result')) throw new Error(cliExport.output || 'cli export failed');
     const cliFail = await runNode(['cli/openbot.mjs', 'show', 'missing-task-id'], { OPENBOT_DATA_DIR: dataDir });
     if (cliFail.code === 0) throw new Error('show missing should fail');
-    pass('CLI creates, approves, executes, exports tasks, and fails on missing show');
+    pass('CLI run persists a task and fails on missing show');
 
     const child = spawn(process.execPath, ['server.mjs'], {
       cwd: root,
@@ -232,42 +164,6 @@ async function main() {
       const parsed = JSON.parse(state.body);
       if (state.status !== 200 || !parsed.approvals) throw new Error('invalid state');
       pass('state endpoint responds with approvals');
-      const configResponse = await http('/api/config');
-      const publicConfig = JSON.parse(configResponse.body);
-      if (configResponse.status !== 200 || publicConfig.localOnly !== true || JSON.stringify(publicConfig).includes('secret-value')) throw new Error('invalid public config');
-      pass('public config reports local-only mode without secrets');
-      const taskResponse = await http('/api/tasks', {
-        method: 'POST',
-        body: JSON.stringify({
-          prompt: 'write a release evidence file',
-          kind: 'file',
-          action: { tool: 'file.write', path: 'api-evidence.txt', content: 'api verified' }
-        })
-      });
-      const taskPayload = JSON.parse(taskResponse.body);
-      if (taskResponse.status !== 201 || !taskPayload.task?.id || !taskPayload.approval?.id) throw new Error(`task create ${taskResponse.status} ${taskResponse.body}`);
-      const approveResponse = await http(`/api/tasks/${encodeURIComponent(taskPayload.task.id)}/approve`, {
-        method: 'POST',
-        body: JSON.stringify({ approvalId: taskPayload.approval.id })
-      });
-      if (approveResponse.status !== 202) throw new Error(`task approve ${approveResponse.status} ${approveResponse.body}`);
-      let taskState;
-      for (let attempt = 0; attempt < 30; attempt += 1) {
-        const current = await http(`/api/tasks/${encodeURIComponent(taskPayload.task.id)}`);
-        taskState = JSON.parse(current.body);
-        if (taskState.task?.status === 'completed') break;
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
-      if (taskState.task?.status !== 'completed') throw new Error(`task did not complete: ${JSON.stringify(taskState)}`);
-      const listed = JSON.parse((await http('/api/tasks')).body).tasks;
-      if (!listed.some((item) => item.id === taskPayload.task.id)) throw new Error('task list missing task');
-      const taskEvents = JSON.parse((await http(`/api/tasks/${encodeURIComponent(taskPayload.task.id)}/events`)).body).events;
-      if (!taskEvents.some((event) => event.type === 'task.execution_result')) throw new Error('task events missing result');
-      const stream = await streamHttp(`/api/tasks/${encodeURIComponent(taskPayload.task.id)}/stream`);
-      if (stream.status !== 200 || !stream.body.includes('event: done')) throw new Error('task stream missing done');
-      const exported = await http(`/api/tasks/${encodeURIComponent(taskPayload.task.id)}/export`);
-      if (exported.status !== 200 || !String(exported.headers['content-disposition']).includes('attachment')) throw new Error('audit export headers');
-      pass('task API, approval, execution, list/show/events, SSE, and audit export work end-to-end');
       const invalidModel = await http('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'test', model: '__not_installed__' }) });
       if (![400, 503].includes(invalidModel.status)) throw new Error(`status ${invalidModel.status}`); pass('uninstalled model is rejected');
       const oversized = await http('/api/approval', { method: 'POST', body: JSON.stringify({ id: 'x', decision: 'x', padding: 'a'.repeat(70000) }) });
@@ -284,8 +180,193 @@ async function main() {
     if (denied.code === 0) throw new Error('server accepted non-loopback bind');
     if (!denied.output.includes('OPENBOT_ALLOW_NON_LOOPBACK')) throw new Error(denied.output || 'missing refuse message');
     pass('server refuses non-loopback bind without override');
+
+    const { createEngine } = await import(pathToFileURL(join(root, 'lib/engine.mjs')).href);
+    const engine = createEngine({ store: first, actor: 'harness' });
+
+    const fixtureNotes = await readFile(join(root, 'fixtures/file/notes.txt'), 'utf8');
+    await writeFile(join(fileWs, 'notes.txt'), fixtureNotes.endsWith('\n') ? fixtureNotes : `${fixtureNotes}\n`);
+    const proposed = await engine.act({
+      workspace: fileWs,
+      tool: 'file.write',
+      args: { path: 'notes.txt', contents: 'hello openbot\n' }
+    });
+    if (proposed.status !== 'needs_approval' || !proposed.approval?.id) {
+      throw new Error(`file propose status ${proposed.status} ${proposed.result?.reason || ''}`);
+    }
+    if (!String(proposed.diff || '').includes('-hello world') || !String(proposed.diff || '').includes('+hello openbot')) {
+      throw new Error(`file diff missing expected lines: ${proposed.diff}`);
+    }
+    const unapproved = await readFile(join(fileWs, 'notes.txt'), 'utf8');
+    if (unapproved.trim() !== 'hello world') throw new Error('file wrote before approval');
+    await first.decideApproval(proposed.approval.id, 'approved');
+    const written = await engine.act({
+      workspace: fileWs,
+      tool: 'file.write',
+      args: { path: 'notes.txt', contents: 'hello openbot\n' },
+      approvalId: proposed.approval.id,
+      taskId: proposed.taskId
+    });
+    if (!written.ok) throw new Error(`file write failed: ${written.result?.reason || written.result?.error || ''}`);
+    const approvedContents = await readFile(join(fileWs, 'notes.txt'), 'utf8');
+    if (approvedContents !== 'hello openbot\n') throw new Error('approved write did not persist');
+    const reused = await engine.act({
+      workspace: fileWs,
+      tool: 'file.write',
+      args: { path: 'notes.txt', contents: 'hello openbot\n' },
+      approvalId: proposed.approval.id,
+      taskId: proposed.taskId
+    });
+    if (reused.status !== 'denied') throw new Error(`one-shot approval reused: ${reused.status}`);
+    const escaped = await engine.act({
+      workspace: fileWs,
+      tool: 'file.write',
+      args: { path: '../escape.txt', contents: 'nope\n' }
+    });
+    if (escaped.status !== 'denied') throw new Error(`relative escape status ${escaped.status}`);
+    const absoluteEscapePath = join(tmpdir(), 'openbot-phase1-escape.txt');
+    const absolute = await engine.act({
+      workspace: fileWs,
+      tool: 'file.write',
+      args: { path: absoluteEscapePath, contents: 'nope\n' }
+    });
+    if (absolute.status !== 'denied') throw new Error(`absolute escape status ${absolute.status}`);
+    if (existsSync(absoluteEscapePath)) throw new Error('write escaped to temp dir');
+    pass('FILE benchmark: diff, one-shot approval, workspace isolation');
+
+    const safe = await engine.act({
+      workspace: shellWs,
+      tool: 'shell.exec',
+      args: { command: 'uname' }
+    });
+    if (!safe.ok || !String(safe.result?.stdout || '').trim()) {
+      throw new Error(`safe shell failed: ${JSON.stringify(safe.result)}`);
+    }
+    const destructive = await engine.act({
+      workspace: shellWs,
+      tool: 'shell.exec',
+      args: { command: 'rm -rf /' }
+    });
+    if (destructive.status !== 'denied') throw new Error(`rm -rf / status ${destructive.status}`);
+    const rmOutside = await engine.act({
+      workspace: shellWs,
+      tool: 'shell.exec',
+      args: { command: `rm ${absoluteEscapePath}` }
+    });
+    if (rmOutside.status !== 'denied') throw new Error(`rm outside status ${rmOutside.status}`);
+    pass('SHELL benchmark: sandboxed uname, destructive commands refused');
+
+    const cliEnv = { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' };
+    const cliPropose = await runNode([
+      'cli/openbot.mjs', 'act', '--workspace', fileWs, '--tool', 'file.write',
+      '--path', 'cli.txt', '--contents', 'from cli\n'
+    ], cliEnv, { timeoutMs: 20000 });
+    const cliProposed = parseCliJson(cliPropose.output);
+    if (cliProposed.status !== 'needs_approval' || !cliProposed.approval?.id) {
+      throw new Error(`CLI file propose: ${cliPropose.output}`);
+    }
+    if (existsSync(join(fileWs, 'cli.txt'))) throw new Error('CLI wrote before approval');
+    const cliApprove = await runNode(['cli/openbot.mjs', 'approve', cliProposed.approval.id], cliEnv);
+    if (cliApprove.code !== 0) throw new Error(cliApprove.output || 'CLI approve failed');
+    const cliWrite = await runNode([
+      'cli/openbot.mjs', 'act', '--workspace', fileWs, '--tool', 'file.write',
+      '--path', 'cli.txt', '--contents', 'from cli\n',
+      '--approval', cliProposed.approval.id, '--task', cliProposed.taskId
+    ], cliEnv, { timeoutMs: 20000 });
+    const cliWritten = parseCliJson(cliWrite.output);
+    if (!cliWritten.ok) throw new Error(`CLI file execute: ${cliWrite.output}`);
+    const cliBody = await readFile(join(fileWs, 'cli.txt'), 'utf8');
+    if (cliBody !== 'from cli\n') throw new Error(`CLI write mismatch ${JSON.stringify(cliBody)}`);
+    pass('CLI file.write requires approval before write');
+
+    const cliShell = await runNode([
+      'cli/openbot.mjs', 'act', '--workspace', shellWs, '--tool', 'shell.exec', '--command', 'uname'
+    ], cliEnv, { timeoutMs: 30000 });
+    const cliShellJson = parseCliJson(cliShell.output);
+    if (!cliShellJson.ok || !String(cliShellJson.result?.stdout || '').trim()) {
+      throw new Error(`CLI shell: ${cliShell.output}`);
+    }
+    const cliRm = await runNode([
+      'cli/openbot.mjs', 'act', '--workspace', shellWs, '--tool', 'shell.exec', '--command', 'rm -rf /'
+    ], cliEnv, { timeoutMs: 15000 });
+    const cliRmJson = parseCliJson(cliRm.output);
+    if (cliRmJson.status !== 'denied') throw new Error(`CLI destructive: ${cliRm.output}`);
+    pass('CLI shell.exec runs uname and refuses unapproved rm -rf /');
+
+    const html = await readFile(join(root, 'fixtures/browser/research.html'), 'utf8');
+    const fixture = createServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end(html);
+    });
+    await listen(fixture);
+    try {
+      const address = fixture.address();
+      const fixtureUrl = `http://127.0.0.1:${address.port}/research`;
+      const fetched = await engine.act({
+        workspace: browserWs,
+        tool: 'browser.fetch',
+        args: { url: fixtureUrl, path: 'research.md' }
+      });
+      if (!fetched.ok) throw new Error(`browser fetch failed: ${fetched.result?.reason || fetched.result?.error || ''}`);
+      const markdown = await readFile(join(browserWs, 'research.md'), 'utf8');
+      if (!markdown.includes(fixtureUrl)) throw new Error('markdown missing cited URL');
+      if (!/OpenBot Research Fixture/i.test(markdown)) throw new Error('markdown missing fixture heading');
+      const blocked = await engine.act({
+        workspace: browserWs,
+        tool: 'browser.fetch',
+        args: { url: 'http://example.com/', path: 'blocked.md' }
+      });
+      if (blocked.status !== 'denied') throw new Error(`non-allowlisted fetch status ${blocked.status}`);
+      if (existsSync(join(browserWs, 'blocked.md'))) throw new Error('blocked fetch wrote a file');
+
+      const cliBrowser = await runNode([
+        'cli/openbot.mjs', 'act', '--workspace', browserWs, '--tool', 'browser.fetch',
+        '--url', fixtureUrl, '--path', 'cli-research.md'
+      ], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' }, { timeoutMs: 20000 });
+      const cliBrowserJson = parseCliJson(cliBrowser.output);
+      if (!cliBrowserJson.ok) throw new Error(`CLI browser: ${cliBrowser.output}`);
+      const cliMd = await readFile(join(browserWs, 'cli-research.md'), 'utf8');
+      if (!cliMd.includes(fixtureUrl)) throw new Error('CLI markdown missing cited URL');
+      pass('CLI browser.fetch saves cited Markdown for an allowlisted URL');
+    } finally {
+      await closeServer(fixture);
+    }
+    pass('BROWSER benchmark: allowlisted loopback fetch saved cited markdown');
+
+    const auditEvents = await first.listEvents();
+    const actions = auditEvents.filter((event) => String(event.type).startsWith('action.'));
+    if (actions.length < 8) throw new Error(`expected action events, got ${actions.length}`);
+    for (const event of actions) {
+      const actor = event.actor || event.payload?.actor;
+      const tool = event.tool || event.payload?.tool;
+      const args = event.args ?? event.payload?.args;
+      const result = event.result ?? event.payload?.result;
+      if (!actor || !tool || args == null || result == null || !event.ts) {
+        throw new Error(`audit fields missing on ${event.type} seq=${event.seq}`);
+      }
+    }
+    const byTool = new Map();
+    for (const event of actions) {
+      const tool = event.tool || event.payload?.tool;
+      const types = byTool.get(tool) || new Set();
+      types.add(event.type);
+      byTool.set(tool, types);
+    }
+    if (!byTool.get('file.write')?.has('action.executed') || !byTool.get('file.write')?.has('action.denied')) {
+      throw new Error('file.write audit trail incomplete');
+    }
+    if (!byTool.get('shell.exec')?.has('action.executed') || !byTool.get('shell.exec')?.has('action.denied')) {
+      throw new Error('shell.exec audit trail incomplete');
+    }
+    if (!byTool.get('browser.fetch')?.has('action.executed')) {
+      throw new Error('browser.fetch audit trail incomplete');
+    }
+    pass('consequential actions have actor/tool/args/result/timestamp events');
   } finally {
     await rm(dataDir, { recursive: true, force: true }).catch(() => {});
+    await rm(fileWs, { recursive: true, force: true }).catch(() => {});
+    await rm(shellWs, { recursive: true, force: true }).catch(() => {});
+    await rm(browserWs, { recursive: true, force: true }).catch(() => {});
   }
 
   const failed = checks.filter((check) => !check.ok);
