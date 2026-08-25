@@ -1,4 +1,4 @@
-data/state.json
+/data/
 node_modules/
 .env
 .env.*

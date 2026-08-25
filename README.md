@@ -1,6 +1,6 @@
 # OpenBot
 
-OpenBot is a free and open-source, self-hostable, local-first control-plane preview inspired by cloud agent teammates. It supplies a private control dashboard, an Ollama-backed task conversation, approval gates, persisted routine/approval state, and a repeatable release harness.
+OpenBot is a free and open-source, self-hostable, local-first control-plane preview inspired by cloud agent teammates. It supplies a private control dashboard, an Ollama-backed task conversation, approval gates, a durable task/event store, a CLI skeleton, persisted approvals, and a repeatable release harness.
 
 ## What it does now
 
@@ -8,7 +8,7 @@ OpenBot is a free and open-source, self-hostable, local-first control-plane prev
 - Sends planning tasks to the first available Ollama model.
 - Keeps a local approval queue; sending, publishing, purchases, deletion, and production changes should remain approval-gated.
 - Presents the architectural seams needed for browser and desktop workers, while deliberately leaving those disabled until they can be isolated and permissioned.
-- Uses safe local defaults: loopback binding, bounded JSON requests, model allowlisting, atomic state writes, and security response headers.
+- Uses safe local defaults: loopback binding, bounded JSON requests, model allowlisting, atomic event-log writes, and security response headers.
 
 ## Release checks
 
@@ -26,6 +26,6 @@ The harness starts an isolated test server and verifies required files, health/s
 2. In this folder, run `npm start`.
 3. Open `http://127.0.0.1:4178`.
 
-The server binds to loopback by default. Set `HOST` and `PORT` only when you understand the security implications; the current preview has no authentication and must not be exposed directly to the public internet.
+The server binds to loopback by default. The daemon refuses a non-loopback HOST unless OPENBOT_ALLOW_NON_LOOPBACK=1 is set; the preview still has no authentication and must not be exposed to the public internet. CLI: node cli/openbot.mjs doctor|run|list|show|approve|reject|pause|cancel|resume|logs|config.
 
 OpenBot contains no automatic shell, browser, or desktop execution in this first version. That separation is intentional: a real worker should be isolated from the primary desktop and require explicit approval rules.
