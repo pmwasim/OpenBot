@@ -1,5 +1,54 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OpenBot</title><link rel="stylesheet" href="/styles.css"></head>
-<body><main class="shell"><aside><a class="brand" href="/">◈ <span>OpenBot</span></a><p class="caption">LOCAL AGENT CONTROL</p><nav><button class="active">▣ Overview</button><button>◉ Agents</button><button>◌ Routines</button><button>⌁ Activity</button><button>◇ Skills</button></nav><div class="side-bottom"><button>⚙ Settings</button><p>Private by default<br><strong>Ubuntu desktop</strong></p></div></aside>
-<section class="workspace"><header><div><p class="eyebrow">AGENT WORKSPACE</p><h1>Operations Bot</h1><p class="sub"><i></i> Ready for a local task</p></div><button class="primary">+ Create agent</button></header><section id="chat" class="chat"><article class="message bot"><span>OB</span><div><b>OpenBot</b><p>Give me a task. I will use your local Ollama model to plan it and will stop before any consequential action.</p></div></article></section><form id="task-form"><textarea id="task" placeholder="Example: Review the files in my project and prepare a concise release checklist."></textarea><div><span id="model-label">Checking local model…</span><button class="primary" type="submit">Run local task <b>↵</b></button></div></form></section>
-<aside class="right"><section><div class="section-title"><h2>System</h2><span id="health-dot" class="dot"></span></div><div class="health"><b id="ollama">Ollama local</b><small id="model-count">Checking service…</small></div><div class="health"><b>Browser worker</b><small>Disabled until explicitly connected</small></div></section><section><div class="section-title"><h2>Approvals</h2><span id="approval-count">1</span></div><div id="approvals"></div></section><section><div class="section-title"><h2>Routines</h2><button class="text">Manage</button></div><div id="routines"></div></section><footer><a href="/assets/openbot-concept.png" target="_blank">View product concept ↗</a></footer></aside></main><script src="/app.js"></script></body></html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0b0f15">
+    <link rel="icon" href="data:,">
+    <title>OpenBot · Local agent control</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Primary navigation">
+        <a class="brand" href="/" aria-label="OpenBot home"><span class="brand-mark" aria-hidden="true">⬡</span><span>OpenBot</span></a>
+        <p class="eyebrow">LOCAL AGENT CONTROL</p>
+        <nav class="nav-list">
+          <button class="nav-item active" data-view="agents"><span class="nav-glyph">◈</span><span>Agents</span></button>
+          <button class="nav-item" data-view="routines"><span class="nav-glyph">□</span><span>Routines</span></button>
+          <button class="nav-item" data-view="activity"><span class="nav-glyph">⌁</span><span>Activity</span></button>
+          <button class="nav-item" data-view="skills"><span class="nav-glyph">▤</span><span>Skills</span></button>
+          <button class="nav-item" data-view="settings"><span class="nav-glyph">⚙</span><span>Settings</span></button>
+        </nav>
+        <div class="sidebar-spacer"></div>
+        <div class="machine-card"><span class="machine-dot"></span><div><strong>openbot-local</strong><small id="machine-mode">Local only</small></div></div>
+        <div class="sidebar-foot"><button class="minor-link" data-view="activity"><span>▤</span> System logs</button><button class="minor-link" data-view="settings"><span>?</span> Help & settings</button></div>
+      </aside>
+
+      <main class="main-shell">
+        <header class="topbar">
+          <div class="local-status"><span class="status-dot"></span><div><strong>Local mode</strong><small>All data stays on this machine</small></div></div>
+          <div class="top-actions"><button class="icon-button" title="Open terminal" aria-label="Open terminal">〉_</button><button class="icon-button" title="Open data folder" aria-label="Open data folder">□</button><button class="icon-button" title="Settings" aria-label="Settings">⚙</button><button class="primary" id="create-task">＋ Create task</button></div>
+        </header>
+
+        <div class="content-grid">
+          <section class="stage" aria-label="OpenBot task workspace">
+            <div class="agent-header"><div class="agent-identity"><div class="agent-avatar" aria-hidden="true">✦</div><div><div class="agent-title"><h1>Operations Bot</h1><span class="running-badge"><span class="status-dot"></span><span id="agent-status">Ready</span></span></div><p>Research and operations assistant</p></div></div><div class="agent-actions"><button class="outline" id="pause-all">Pause</button><button class="outline" id="clear-selection">Clear view</button><button class="icon-button" aria-label="More options">⋮</button></div></div>
+            <div class="tabs" role="tablist" aria-label="Workspace views"><button class="tab active" data-tab="conversation">Conversation</button><button class="tab" data-tab="tasks">Tasks <span id="task-count">0</span></button><button class="tab" data-tab="files">Files</button><button class="tab" data-tab="context">Context</button><button class="tab" data-tab="settings">Settings</button></div>
+            <div id="workspace-view" class="workspace-view"></div>
+            <form id="task-form" class="composer"><label class="sr-only" for="task">Describe a local task</label><textarea id="task" rows="2" placeholder="Describe a task for OpenBot…"></textarea><details class="action-details"><summary>Attach a structured local action</summary><label for="action-json">Action JSON <span>(optional)</span></label><input id="action-json" placeholder='{"tool":"file.read","path":"notes.txt"}' autocomplete="off"><small>Actions that write, delete, execute, or fetch require approval.</small></details><div class="composer-footer"><span id="model-label">Checking local model…</span><button class="primary" type="submit">Run local task <b>↵</b></button></div></form>
+          </section>
+
+          <aside class="inspector" aria-label="Task inspector">
+            <section class="inspector-section"><div class="section-heading"><h2>Approvals</h2><span id="approval-count" class="count">0</span><button class="text-button" id="refresh">Refresh</button></div><div id="approvals" class="stack"></div></section>
+            <section class="inspector-section"><div class="section-heading"><h2>System health</h2><span id="health-dot" class="status-dot"></span></div><div id="health" class="stack"></div></section>
+            <section class="inspector-section selected-section"><div class="section-heading"><h2>Selected task</h2><button class="text-button" id="export-task" disabled>Export</button></div><div id="selected-task" class="selected-task empty">Select a task to inspect its event trail.</div></section>
+          </aside>
+        </div>
+        <footer class="statusbar"><span><span class="status-dot"></span> Zero-spend local runtime</span><span>OpenBot v1.0.0 · <a href="/assets/openbot-concept.png" target="_blank" rel="noreferrer">Design reference ↗</a></span></footer>
+      </main>
+    </div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="/app.js"></script>
+  </body>
+</html>

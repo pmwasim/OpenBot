@@ -4,7 +4,9 @@ import { join } from 'node:path';
 import { loadConfig, publicConfig, ROOT } from '../lib/config.mjs';
 import { assertBindHost, isLoopbackHost } from '../lib/loopback.mjs';
 import { createProviderHub } from '../lib/provider.mjs';
-import { openStore } from '../lib/store.mjs';
+import { createExecutor } from '../lib/executor.mjs';
+import { createWorkerHub } from '../lib/workers.mjs';
+import { openStore, redactSecrets } from '../lib/store.mjs';
 
 const USAGE = `OpenBot CLI (control-plane preview)
 
@@ -12,7 +14,7 @@ Usage: openbot <command> [options]
 
 Commands:
   start              Start the local OpenBot daemon
-  run <prompt>       Create a task (no tool execution in Phase 0)
+  run <prompt>       Create and run a task when its policy permits
   list               List tasks
   show <id>          Show one task
   approve <id>       Approve a waiting approval
@@ -21,12 +23,14 @@ Commands:
   cancel <task-id>   Cancel a task
   resume <task-id>   Resume a paused task
   logs [task-id]     Show event log
+  export <task-id>   Export a redacted audit bundle
   doctor             Check loopback, Ollama, and store
   config             Show local configuration
 
 Options:
   --json             Print machine-readable JSON
   --kind <kind>      Task action kind for policy (plan, send, delete, ...)
+  --action-json <json>  Structured local action (file/shell/browser worker)
   -h, --help         Show this help
 `;
 
@@ -38,6 +42,8 @@ function parseArgs(argv) {
     if (arg === '--json') flags.json = true;
     else if (arg === '--kind') flags.kind = argv[index += 1];
     else if (arg.startsWith('--kind=')) flags.kind = arg.slice(7);
+    else if (arg === '--action-json') flags.actionJson = argv[index += 1];
+    else if (arg.startsWith('--action-json=')) flags.actionJson = arg.slice(14);
     else if (arg === '--title') flags.title = argv[index += 1];
     else if (arg === '--help' || arg === '-h') flags.help = true;
     else if (arg.startsWith('-')) {
@@ -58,6 +64,17 @@ function fail(error) {
   const message = error && error.message ? error.message : String(error);
   console.error(message);
   process.exit(error && error.exitCode ? error.exitCode : 1);
+}
+
+function parseAction(value) {
+  if (!value) return null;
+  try {
+    const action = JSON.parse(value);
+    if (!action || typeof action !== 'object' || Array.isArray(action)) throw new Error('action must be a JSON object');
+    return action;
+  } catch (error) {
+    throw Object.assign(new Error(`--action-json must contain a valid JSON object: ${error.message}`), { exitCode: 1 });
+  }
 }
 
 async function main() {
@@ -135,18 +152,29 @@ async function main() {
   }
 
   const store = await openStore({ dataDir: config.dataDir });
+  const workers = createWorkerHub({
+    dataDir: config.dataDir,
+    localOnly: config.localOnly,
+    browserAllowlist: config.browserAllowlist,
+    sandboxMode: config.sandboxMode,
+    limits: { shellTimeoutMs: config.limits.shellTimeoutMs }
+  });
+  const executor = createExecutor({ store, workers });
 
   if (command === 'run') {
     const prompt = positional.slice(1).join(' ').trim();
     if (!prompt) fail(Object.assign(new Error('run requires a prompt.'), { exitCode: 1 }));
-    const created = await store.createTask({ prompt, kind: flags.kind || 'plan', title: flags.title });
-    print(created, true);
+    const created = await store.createTask({ prompt, kind: flags.kind || 'plan', title: flags.title, action: parseAction(flags.actionJson) });
+    let task = created.task;
+    if (task.status === 'pending') task = await executor.start(task.id);
+    print(redactSecrets({ ...created, task }), true);
     return;
   }
 
   if (command === 'list') {
     const tasks = await store.listTasks();
-    if (asJson || !tasks.length) print(tasks.length ? tasks : (asJson ? [] : 'No tasks.'), asJson || Boolean(tasks.length));
+    const safeTasks = redactSecrets(tasks);
+    if (asJson || !tasks.length) print(tasks.length ? safeTasks : (asJson ? [] : 'No tasks.'), asJson || Boolean(tasks.length));
     else for (const task of tasks) console.log(`${task.id}\t${task.status}\t${task.kind}\t${task.prompt}`);
     return;
   }
@@ -157,7 +185,7 @@ async function main() {
     const task = await store.getTask(id);
     if (!task) fail(Object.assign(new Error('Task not found'), { exitCode: 1 }));
     const events = await store.listEvents({ taskId: id });
-    print({ task, events }, true);
+    print(redactSecrets({ task, events }), true);
     return;
   }
 
@@ -165,21 +193,34 @@ async function main() {
     const id = positional[1];
     if (!id) fail(Object.assign(new Error('Approval id is required.'), { exitCode: 1 }));
     const approval = await store.decideApproval(id, command === 'approve' ? 'approved' : 'rejected');
-    print({ approval }, true);
+    let task = approval.taskId ? await store.getTask(approval.taskId) : null;
+    if (command === 'approve' && task && approval.actionDigest) {
+      await store.consumeApproval(approval.id, approval.actionDigest);
+      task = await executor.start(task.id);
+    }
+    print(redactSecrets({ approval, task }), true);
     return;
   }
 
   if (command === 'pause' || command === 'cancel' || command === 'resume') {
     const id = positional[1];
     if (!id) fail(Object.assign(new Error('Task id is required.'), { exitCode: 1 }));
-    const task = await store.setTaskStatus(id, command);
-    print({ task }, true);
+    const task = command === 'resume' ? await store.resumeTask(id) : await store.setTaskStatus(id, command);
+    const next = task.status === 'pending' ? await executor.start(task.id) : task;
+    print(redactSecrets({ task: next }), true);
     return;
   }
 
   if (command === 'logs') {
     const events = await store.listEvents({ taskId: positional[1] });
-    print(events, true);
+    print(redactSecrets(events), true);
+    return;
+  }
+
+  if (command === 'export') {
+    const id = positional[1];
+    if (!id) fail(Object.assign(new Error('Task id is required.'), { exitCode: 1 }));
+    print(redactSecrets(await store.exportTask(id)), true);
     return;
   }
 

@@ -1,11 +1,11 @@
 {
   "name": "openbot-local-agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
     "check": "node scripts/release_harness.mjs",
-    "release": "npm run check"
+    "release": "npm run check && node scripts/release_package.mjs"
   }
 }
