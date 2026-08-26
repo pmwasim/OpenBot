@@ -1,15 +1,15 @@
 # OpenBot Product Requirements Document
 
-**Status:** Draft for implementation planning  
-**Version:** 0.1  
-**Date:** 2026-08-25  
+**Status:** Active implementation baseline
+**Version:** 0.2
+**Date:** 2026-08-26
 **Owner:** OpenBot product/engineering
 
 ## 1. Executive summary
 
 OpenBot is a free and open-source, self-hostable, local-first autonomous agent platform with a shared agent core, CLI, Ubuntu desktop app, web UI, API, and sandboxed workers. It should be a credible free/open-source alternative to Grok Bot: able to perform useful computer, browser, file, and research tasks while keeping deployment, data, model choice, provider credentials, permissions, and audit history under the operator's control.
 
-OpenBot is not yet better than Grok Bot. The current MVP provides an Ollama-backed chat endpoint, health checks, a local dashboard, and persisted approval/routine state, but it does not execute shell, browser, desktop, or file work. This PRD defines the smallest credible path from that prototype to a real product.
+OpenBot is not yet feature-equivalent to Grok Bot. The current implementation now has a bounded Ollama agent loop that can execute safe file, shell-diagnostic, and browser-fetch actions through the audited engine, while stopping for approval before consequential work. This PRD defines the path from that first real-work slice to a complete product.
 
 ## 2. Evidence and competitive context
 
@@ -76,15 +76,26 @@ OpenBot should provide a practical middle path: real work through isolated worke
 
 ### Material gaps and risks
 
-- `/api/chat` is a planning/chat proxy; it has no tool execution loop.
-- The system prompt says not to claim execution, but there is no structured action model that can enforce this distinction.
-- Approval records are seeded/static and are not attached to a proposed command, diff, tool call, or task.
+- The local agent loop is bounded and structured, but it supports only the first-party file/shell/browser tool set and one task at a time.
+- Approval records are now attached to proposed actions and diffs, but the dashboard does not yet resume an agent automatically after approval.
 - Routines are displayed but cannot be created, scheduled, executed, paused, or retried.
 - No authentication, authorization, CSRF protection, rate limiting, or multi-user boundary exists.
 - Provider credentials, OAuth, model routing, MCP, skills, plugins, memory, and audit replay are absent.
 - State is a single JSON file; concurrent writes, corruption recovery, migrations, and retention are not handled.
 - The HTTP server is suitable for a local prototype only; it must not be exposed to a LAN or internet before hardening.
-- The audited host has two GTX 1070 GPUs but substantial RAM/swap pressure; local model size and concurrency must be bounded.
+- CPU-only legacy mode is supported for core administration and allowlisted diagnostics; natural-language reasoning still depends on an installed local model and may be too slow for some older laptops.
+
+### Current real-work slice
+
+The first meaningful “bot, not control panel” milestone is implemented on the authoritative main baseline:
+
+- `lib/agent.mjs` validates a strict JSON reply/action contract and runs at most six turns/actions in standard mode or three in `legacy` mode.
+- `/api/chat`, `openbot chat`, and the dashboard use the same controller and existing policy/engine boundary.
+- Safe reads/diagnostics execute automatically; writes, deletion, publishing, external communication, and other consequential effects stop with explicit approval.
+- Model context, action results, approval details, and persisted audit events are redacted and bounded.
+- The release harness covers 47 checks, including malformed model output, approval stop, low-resource execution, CLI/API flows, UI safety, workspace containment, and audit redaction.
+
+This is not a claim of Grok Bot parity. Grok Bot's managed cloud computer, persistent shared environment, connectors/MCP, skills, routines, memory, and collaboration remain OpenBot roadmap items. OpenBot's differentiator is local ownership, zero mandatory spend, and inspectable policy/audit behavior.
 
 ## 8. User stories
 

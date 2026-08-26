@@ -7,6 +7,7 @@ import { assertBindHost } from './lib/loopback.mjs';
 import { createProviderHub } from './lib/provider.mjs';
 import { openStore } from './lib/store.mjs';
 import { createEngine } from './lib/engine.mjs';
+import { createAgentController } from './lib/agent.mjs';
 
 const config = loadConfig();
 const maxBodyBytes = 64 * 1024;
@@ -32,6 +33,23 @@ if (bind.overridden) {
 const store = await openStore({ dataDir: config.dataDir });
 const providers = createProviderHub(process.env, { ollamaUrl: config.ollamaUrl });
 const ollama = providers.ollama;
+
+function fixtureAgentProvider(raw) {
+  let replies;
+  try { replies = JSON.parse(raw); }
+  catch { replies = []; }
+  let index = 0;
+  return {
+    async chatStructured({ model }) {
+      if (index >= replies.length) return { ok: false, status: 502, model, error: 'Test agent response queue is exhausted.' };
+      return { ok: true, status: 200, model: model || 'fixture', reply: replies[index++] };
+    }
+  };
+}
+
+const agentProvider = process.env.OPENBOT_TEST_AGENT_RESPONSES
+  ? fixtureAgentProvider(process.env.OPENBOT_TEST_AGENT_RESPONSES)
+  : ollama;
 
 function json(res, status, body) {
   res.writeHead(status, {
@@ -95,42 +113,35 @@ const app = http.createServer(async (req, res) => {
       return json(res, 200, { approval });
     }
     if (url.pathname === '/api/chat' && req.method === 'POST') {
-      const { message, model } = await body(req);
+      const { message, model, workspace, taskId, maxTurns } = await body(req);
       if (typeof message !== 'string' || !message.trim()) return json(res, 400, { error: 'A task is required.' });
-      let tags;
-      try { tags = await ollama.tags(); }
-      catch { return json(res, 503, { error: 'Ollama is not available. Start Ollama, then download a local model.' }); }
-      if (!tags.ok) return json(res, 503, { error: 'Ollama is not available. Start Ollama, then download a local model.' });
-      const installed = tags.models || [];
-      const selected = model || installed[0];
-      if (!selected) return json(res, 503, { error: 'Ollama has no local model yet.' });
-      if (!installed.includes(selected)) return json(res, 400, { error: 'Requested model is not installed locally.' });
-      const created = await store.createTask({ prompt: message, kind: 'plan', provider: 'ollama' });
-      await store.append({
-        type: 'model.request',
-        taskId: created.task.id,
-        payload: { provider: 'ollama', model: selected }
+      if (typeof workspace !== 'string' || !workspace.trim() || workspace === 'local') return json(res, 400, { error: 'An explicit workspace path is required for agent work.' });
+      let selected = model;
+      if (!process.env.OPENBOT_TEST_AGENT_RESPONSES) {
+        let tags;
+        try { tags = await ollama.tags(); }
+        catch { return json(res, 503, { error: 'Ollama is not available. Start Ollama, then download a local model.' }); }
+        if (!tags.ok) return json(res, 503, { error: 'Ollama is not available. Start Ollama, then download a local model.' });
+        const installed = tags.models || [];
+        selected = selected || installed[0];
+        if (!selected) return json(res, 503, { error: 'Ollama has no local model yet.' });
+        if (!installed.includes(selected)) return json(res, 400, { error: 'Requested model is not installed locally.' });
+      }
+      const controller = createAgentController({
+        store,
+        provider: agentProvider,
+        engine: createEngine({ store, actor: 'agent' }),
+        actor: 'agent',
+        maxTurns: Math.min(Number(maxTurns) > 0 ? Number(maxTurns) : config.agentMaxTurns, config.agentMaxTurns),
+        maxActions: config.agentMaxActions,
+        maxContextChars: config.agentContextChars
       });
-      const response = await ollama.chat({
-        model: selected,
-        stream: false,
-        messages: [
-          { role: 'system', content: 'You are OpenBot, a local-first assistant. Plan tasks carefully. Do not claim that you executed actions. When an action could send, publish, purchase, delete, or change a production system, explicitly ask for approval.' },
-          { role: 'user', content: message }
-        ]
-      });
-      await store.append({
-        type: 'model.response',
-        taskId: created.task.id,
-        payload: {
-          provider: 'ollama',
-          model: selected,
-          ok: Boolean(response.ok),
-          replyChars: String(response.reply || '').length
-        }
-      });
-      if (!response.ok) return json(res, response.status, { error: response.error || 'Ollama could not complete the task.' });
-      return json(res, 200, { model: selected, reply: response.reply || 'No response returned.', taskId: created.task.id });
+      const result = await controller.run({ taskId, prompt: message, workspace, model: selected });
+      const status = result.status === 'completed' || result.status === 'waiting_approval' ? 200
+        : result.status === 'denied' ? 403
+        : result.status === 'failed' ? 502
+        : 422;
+      return json(res, status, { model: selected || 'fixture', ...result });
     }
     const file = url.pathname === '/' ? join(publicDir, 'index.html') : join(publicDir, url.pathname);
     if (!file.startsWith(publicDir) || !existsSync(file)) return json(res, 404, { error: 'Not found' });

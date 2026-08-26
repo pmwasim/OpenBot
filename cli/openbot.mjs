@@ -7,6 +7,7 @@ import { createProviderHub } from '../lib/provider.mjs';
 import { detectIsolation } from '../lib/sandbox.mjs';
 import { openStore } from '../lib/store.mjs';
 import { createEngine } from '../lib/engine.mjs';
+import { createAgentController } from '../lib/agent.mjs';
 
 const USAGE = `OpenBot CLI (control-plane preview)
 
@@ -15,6 +16,7 @@ Usage: node cli/openbot.mjs <command> [options]
 Commands:
   start              Start the local OpenBot daemon
   run <prompt>       Create a task
+  chat <prompt>      Run the bounded local agent loop
   propose            Propose a worker action (file/shell/browser)
   execute <id>       Execute an allowed or approved action
   list               List tasks
@@ -32,6 +34,7 @@ Commands:
 Options:
   --json             Print machine-readable JSON
   --kind <kind>      Task or action kind (plan, file.write, shell.exec, browser.visit, ...)
+  --model <name>     Local Ollama model (defaults to the first installed model)
   --workspace <dir>  Task workspace directory
   --task <id>        Task id for propose
   --path <path>      Workspace-relative file path
@@ -57,7 +60,8 @@ const VALUE_FLAGS = {
   '--contents': 'contents',
   '--approval': 'approvalId',
   '--task': 'taskId',
-  '--action': 'actionId'
+  '--action': 'actionId',
+  '--model': 'model'
 };
 
 function parseArgs(argv) {
@@ -143,6 +147,54 @@ async function runWorker(store, flags) {
   if (!result.ok && result.status !== 'needs_approval') {
     process.exit(result.status === 'denied' ? 2 : 1);
   }
+}
+
+function fixtureAgentProvider(raw) {
+  let replies;
+  try { replies = JSON.parse(raw); }
+  catch { replies = []; }
+  let index = 0;
+  return {
+    async chatStructured({ model }) {
+      if (index >= replies.length) return { ok: false, status: 502, model, error: 'Test agent response queue is exhausted.' };
+      return { ok: true, status: 200, model: model || 'fixture', reply: replies[index++] };
+    }
+  };
+}
+
+async function runAgent(store, config, flags, prompt) {
+  if (!prompt) fail(Object.assign(new Error('chat requires a prompt.'), { exitCode: 1 }));
+  if (!flags.workspace || flags.workspace === 'local') fail(Object.assign(new Error('Workspace is required (--workspace).'), { exitCode: 1 }));
+
+  const fixture = Boolean(process.env.OPENBOT_TEST_AGENT_RESPONSES);
+  const hub = createProviderHub(process.env, { ollamaUrl: config.ollamaUrl });
+  let model = flags.model || '';
+  let provider = hub.ollama;
+  if (fixture) {
+    provider = fixtureAgentProvider(process.env.OPENBOT_TEST_AGENT_RESPONSES);
+  } else {
+    let tags;
+    try { tags = await provider.tags(); }
+    catch (error) { fail(Object.assign(new Error(`Ollama is unavailable: ${error.message}`), { exitCode: 1 })); }
+    if (!tags.ok) fail(Object.assign(new Error('Ollama is unavailable. Start Ollama, then install a local model.'), { exitCode: 1 }));
+    model = model || tags.models[0] || '';
+    if (!model) fail(Object.assign(new Error('Ollama has no local model. Install one before using chat.'), { exitCode: 1 }));
+    if (!tags.models.includes(model)) fail(Object.assign(new Error(`Requested model is not installed locally: ${model}`), { exitCode: 1 }));
+  }
+
+  const controller = createAgentController({
+    store,
+    provider,
+    engine: createEngine({ store, actor: 'agent' }),
+    actor: 'agent',
+    maxTurns: config.agentMaxTurns,
+    maxActions: config.agentMaxActions,
+    maxContextChars: config.agentContextChars
+  });
+  const result = await controller.run({ prompt, workspace: flags.workspace, taskId: flags.taskId, model });
+  if (flags.json) print({ model: model || 'fixture', ...result }, true);
+  else print(result.reply || `${result.status}${result.approvals?.length ? `: approval ${result.approvals[0].id}` : ''}`);
+  if (!['completed', 'waiting_approval'].includes(result.status)) process.exit(result.status === 'denied' ? 2 : 1);
 }
 
 async function main() {
@@ -242,6 +294,11 @@ async function main() {
 
   if (command === 'act' || command === 'propose') {
     await runWorker(store, flags);
+    return;
+  }
+
+  if (command === 'chat') {
+    await runAgent(store, config, flags, positional.slice(1).join(' ').trim());
     return;
   }
 

@@ -77,6 +77,12 @@ async function main() {
   for (const file of required) {
     await access(join(root, file)); pass(`required file: ${file}`);
   }
+  const indexSource = await readFile(join(root, 'public/index.html'), 'utf8');
+  const appSource = await readFile(join(root, 'public/app.js'), 'utf8');
+  if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"')) throw new Error('dashboard is missing an explicit workspace input');
+  if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit')) throw new Error('dashboard does not expose agent actions and audit links');
+  if (appSource.includes('e.innerHTML=`')) throw new Error('dashboard renders state with unsafe innerHTML');
+  pass('dashboard exposes workspace, action cards, and audit links safely');
 
   const { decide, REQUIRE_APPROVAL_KINDS } = await import(pathToFileURL(join(root, 'lib/policy.mjs')).href);
   for (const kind of REQUIRE_APPROVAL_KINDS) {
@@ -115,10 +121,82 @@ async function main() {
   if (JSON.stringify(hub.describe()).includes('sk-secret-value')) throw new Error('secret leaked');
   pass('provider hub defaults to local Ollama and redacts secrets');
 
+  const { loadConfig, publicConfig } = await import(pathToFileURL(join(root, 'lib/config.mjs')).href);
+  const legacyConfig = loadConfig({ OPENBOT_RESOURCE_PROFILE: 'legacy' });
+  if (legacyConfig.resourceProfile !== 'legacy' || legacyConfig.agentMaxTurns !== 3 || legacyConfig.agentMaxActions !== 3 || legacyConfig.isolation !== 'cwd') {
+    throw new Error(`legacy profile defaults ${JSON.stringify(legacyConfig)}`);
+  }
+  if (publicConfig(legacyConfig).resourceProfile !== 'legacy') throw new Error('legacy profile is not public');
+  pass('legacy resource profile caps agent work for older CPU-only laptops');
+
+  const { parseAgentEnvelope, createAgentController } = await import(pathToFileURL(join(root, 'lib/agent.mjs')).href);
+  const parsedReply = parseAgentEnvelope(JSON.stringify({ reply: 'Ready.' }));
+  if (parsedReply.reply !== 'Ready.' || parsedReply.action !== null) throw new Error('agent reply envelope');
+  const parsedAction = parseAgentEnvelope(JSON.stringify({ action: { tool: 'file.read', args: { path: 'notes.txt' } } }));
+  if (parsedAction.action.tool !== 'file.read' || parsedAction.reply !== null) throw new Error('agent action envelope');
+  let malformedRejected = false;
+  try { parseAgentEnvelope('{"reply":"a","action":{"tool":"file.read","args":{}}}'); } catch { malformedRejected = true; }
+  if (!malformedRejected) throw new Error('agent should reject two-part envelope');
+  let unknownRejected = false;
+  try { parseAgentEnvelope(JSON.stringify({ action: { tool: 'shell.exec;rm', args: {} } })); } catch { unknownRejected = true; }
+  if (!unknownRejected) throw new Error('agent should reject unknown tool');
+
+  function fakeAgentStore() {
+    const events = [];
+    return {
+      events,
+      async createTask(input) { return { task: { id: 'task-agent-harness', ...input, status: 'pending' } }; },
+      async append(event) { events.push(event); return event; },
+      async getTask() { return { id: 'task-agent-harness', workspace: '/tmp/agent-harness' }; },
+      async listEvents() { return events; }
+    };
+  }
+  const loopStore = fakeAgentStore();
+  const loopReplies = [
+    JSON.stringify({ action: { tool: 'file.read', args: { path: 'notes.txt' } } }),
+    JSON.stringify({ reply: 'I read the notes.' })
+  ];
+  const loopCalls = [];
+  const loopEngine = { async act(input) { loopCalls.push(input); return { ok: true, status: 'executed', result: { content: 'hello' }, taskId: input.taskId, actionId: 'action-read' }; } };
+  const loop = createAgentController({
+    store: loopStore,
+    engine: loopEngine,
+    provider: { async chatStructured() { return { ok: true, model: 'fixture', reply: loopReplies.shift() }; } },
+    maxTurns: 3,
+    maxActions: 3
+  });
+  const loopResult = await loop.run({ prompt: 'Read notes.', workspace: '/tmp/agent-harness', model: 'fixture' });
+  if (loopResult.status !== 'completed' || loopResult.reply !== 'I read the notes.' || loopCalls.length !== 1) throw new Error('agent multi-turn loop');
+  if (!loopStore.events.some((event) => event.type === 'agent.action.executed')) throw new Error('agent action audit');
+  pass('agent contract rejects malformed tools and completes a safe multi-turn loop');
+
+  const approvalStore = fakeAgentStore();
+  const approval = createAgentController({
+    store: approvalStore,
+    engine: { async act(input) { return { ok: false, status: 'needs_approval', approval: { id: 'approval-agent' }, taskId: input.taskId, actionId: 'action-write' }; } },
+    provider: { async chatStructured() { return { ok: true, model: 'fixture', reply: JSON.stringify({ action: { tool: 'file.write', args: { path: 'notes.txt', contents: 'changed' } } }) }; } }
+  });
+  const approvalResult = await approval.run({ prompt: 'Change notes.', workspace: '/tmp/agent-harness', model: 'fixture' });
+  if (approvalResult.status !== 'waiting_approval' || !approvalResult.approvals?.length) throw new Error('agent approval stop');
+  pass('agent loop stops at approval without auto-approving');
+
+  const limitStore = fakeAgentStore();
+  const limited = createAgentController({
+    store: limitStore,
+    maxTurns: 1,
+    maxActions: 3,
+    engine: { async act(input) { return { ok: true, status: 'executed', result: { ok: true }, taskId: input.taskId, actionId: 'action-limit' }; } },
+    provider: { async chatStructured() { return { ok: true, model: 'fixture', reply: JSON.stringify({ action: { tool: 'file.read', args: { path: 'notes.txt' } } }) }; } }
+  });
+  const limitResult = await limited.run({ prompt: 'Keep working.', workspace: '/tmp/agent-harness', model: 'fixture' });
+  if (limitResult.status !== 'turn_limit' || limitResult.actions.length !== 1) throw new Error('agent turn limit');
+  pass('agent loop enforces a bounded turn limit');
+
   const dataDir = await mkdtemp(join(tmpdir(), 'openbot-harness-'));
   const fileWs = await mkdtemp(join(tmpdir(), 'openbot-file-'));
   const shellWs = await mkdtemp(join(tmpdir(), 'openbot-shell-'));
   const browserWs = await mkdtemp(join(tmpdir(), 'openbot-browser-'));
+  const agentWs = await mkdtemp(join(tmpdir(), 'openbot-agent-'));
   const { openStore } = await import(pathToFileURL(join(root, 'lib/store.mjs')).href);
   try {
     await writeFile(join(dataDir, 'state.json'), JSON.stringify({
@@ -149,7 +227,18 @@ async function main() {
 
     const child = spawn(process.execPath, ['server.mjs'], {
       cwd: root,
-      env: { ...process.env, HOST: '127.0.0.1', PORT: String(port), OPENBOT_DATA_DIR: dataDir },
+      env: {
+        ...process.env,
+        HOST: '127.0.0.1',
+        PORT: String(port),
+        OPENBOT_DATA_DIR: dataDir,
+        OPENBOT_TEST_AGENT_RESPONSES: JSON.stringify([
+          JSON.stringify({ action: { tool: 'file.read', args: { path: 'notes.txt' } } }),
+          JSON.stringify({ reply: 'The notes are ready.' }),
+          JSON.stringify({ action: { tool: 'file.write', args: { path: 'notes.txt', contents: 'changed by agent\n' } } }),
+          'not-json'
+        ])
+      },
       stdio: ['ignore', 'pipe', 'pipe']
     });
     let output = ''; child.stdout.on('data', (chunk) => { output += chunk; }); child.stderr.on('data', (chunk) => { output += chunk; });
@@ -164,6 +253,21 @@ async function main() {
       const parsed = JSON.parse(state.body);
       if (state.status !== 200 || !parsed.approvals) throw new Error('invalid state');
       pass('state endpoint responds with approvals');
+      await writeFile(join(agentWs, 'notes.txt'), 'agent fixture\n');
+      const agentRead = await http('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'Read the notes.', workspace: agentWs, model: 'fixture' }) });
+      const agentReadBody = JSON.parse(agentRead.body);
+      if (agentRead.status !== 200 || agentReadBody.status !== 'completed' || agentReadBody.actions?.[0]?.status !== 'executed') throw new Error(`agent read ${agentRead.status} ${agentRead.body}`);
+      if (!agentReadBody.reply || !agentReadBody.taskId) throw new Error('agent read result');
+      pass('agent chat executes safe structured work and returns a final reply');
+      const agentWrite = await http('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'Change the notes.', workspace: agentWs, model: 'fixture' }) });
+      const agentWriteBody = JSON.parse(agentWrite.body);
+      if (agentWrite.status !== 200 || agentWriteBody.status !== 'waiting_approval' || !agentWriteBody.approvals?.length) throw new Error(`agent write approval ${agentWrite.status} ${agentWrite.body}`);
+      if ((await readFile(join(agentWs, 'notes.txt'), 'utf8')) !== 'agent fixture\n') throw new Error('agent wrote before approval');
+      pass('agent chat stops consequential work for explicit approval');
+      const agentMalformed = await http('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'Keep going.', workspace: agentWs, model: 'fixture' }) });
+      const agentMalformedBody = JSON.parse(agentMalformed.body);
+      if (agentMalformed.status !== 502 || agentMalformedBody.status !== 'failed' || !String(agentMalformedBody.error).includes('contract')) throw new Error(`agent malformed ${agentMalformed.status} ${agentMalformed.body}`);
+      pass('agent chat reports malformed model output as a bounded contract failure');
       const invalidModel = await http('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'test', model: '__not_installed__' }) });
       if (![400, 503].includes(invalidModel.status)) throw new Error(`status ${invalidModel.status}`); pass('uninstalled model is rejected');
       const oversized = await http('/api/approval', { method: 'POST', body: JSON.stringify({ id: 'x', decision: 'x', padding: 'a'.repeat(70000) }) });
@@ -256,7 +360,37 @@ async function main() {
     if (rmOutside.status !== 'denied') throw new Error(`rm outside status ${rmOutside.status}`);
     pass('SHELL benchmark: sandboxed uname, destructive commands refused');
 
+    const previousIsolation = process.env.OPENBOT_ISOLATION;
+    const previousImage = process.env.OPENBOT_DOCKER_IMAGE;
+    const previousPath = process.env.PATH;
+    process.env.OPENBOT_ISOLATION = 'cwd';
+    process.env.OPENBOT_DOCKER_IMAGE = 'openbot-image-must-not-run-in-legacy-mode';
+    process.env.PATH = '/path-that-cannot-provide-a-command';
+    const portableSafe = await engine.act({ workspace: shellWs, tool: 'shell.exec', args: { command: 'uname' } });
+    if (!portableSafe.ok || !String(portableSafe.result?.stdout || '').trim()) throw new Error(`legacy shell fallback failed: ${JSON.stringify(portableSafe.result)}`);
+    const portableUnknown = await engine.act({ workspace: shellWs, tool: 'shell.exec', args: { command: 'env' } });
+    if (portableUnknown.status !== 'needs_approval' || portableUnknown.result?.needsApproval !== true) throw new Error(`legacy shell did not gate unknown command: ${portableUnknown.status}`);
+    if (previousIsolation === undefined) delete process.env.OPENBOT_ISOLATION; else process.env.OPENBOT_ISOLATION = previousIsolation;
+    if (previousImage === undefined) delete process.env.OPENBOT_DOCKER_IMAGE; else process.env.OPENBOT_DOCKER_IMAGE = previousImage;
+    if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath;
+    pass('legacy shell mode runs only allowlisted diagnostics without Docker');
+
     const cliEnv = { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' };
+    const cliAgent = await runNode([
+      'cli/openbot.mjs', 'chat', '--workspace', fileWs, '--json', 'read the notes file'
+    ], {
+      ...cliEnv,
+      OPENBOT_TEST_AGENT_RESPONSES: JSON.stringify([
+        JSON.stringify({ action: { tool: 'file.read', args: { path: 'notes.txt' }, reason: 'Read the requested file.' } }),
+        JSON.stringify({ reply: 'The notes are available.' })
+      ])
+    }, { timeoutMs: 20000 });
+    const cliAgentJson = parseCliJson(cliAgent.output);
+    if (cliAgent.code !== 0 || cliAgentJson.status !== 'completed' || cliAgentJson.reply !== 'The notes are available.') {
+      throw new Error(`CLI agent: ${cliAgent.output}`);
+    }
+    pass('CLI chat runs the bounded local agent loop');
+
     const cliPropose = await runNode([
       'cli/openbot.mjs', 'act', '--workspace', fileWs, '--tool', 'file.write',
       '--path', 'cli.txt', '--contents', 'from cli\n'
@@ -345,6 +479,12 @@ async function main() {
         throw new Error(`audit fields missing on ${event.type} seq=${event.seq}`);
       }
     }
+    const auditSecret = 'sk-live-test-secret';
+    const proposedSecret = await engine.act({ workspace: fileWs, tool: 'file.write', args: { path: 'secret.txt', contents: `token=${auditSecret}\n` } });
+    if (proposedSecret.status !== 'needs_approval') throw new Error('secret audit probe did not require approval');
+    const afterSecretProbe = await first.listEvents();
+    if (JSON.stringify(afterSecretProbe).includes(auditSecret)) throw new Error('secret leaked into persisted audit event');
+    pass('audit events redact sensitive action results and diffs');
     const byTool = new Map();
     for (const event of actions) {
       const tool = event.tool || event.payload?.tool;

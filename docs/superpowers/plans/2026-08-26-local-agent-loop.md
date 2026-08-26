@@ -16,6 +16,8 @@
 - Model prose is never executable; only strict parsed structured actions reach the engine.
 - Preserve loopback-only defaults, explicit workspace paths, existing policy decisions, redaction, and approval binding.
 - Maximum default agent loop is 6 turns and 6 actions; pending approval terminates the loop.
+- `OPENBOT_RESOURCE_PROFILE=legacy` must run the core on CPU-only older laptops with 3 turns/actions, compact context, and no Docker requirement for allowlisted diagnostics.
+- Do not add a runtime dependency that is not already available in a stock Node.js LTS installation.
 - Existing `/api/chat`, direct `/api/actions`, CLI, worker, and harness behavior must remain compatible unless covered by new tests.
 
 ---
@@ -36,8 +38,9 @@
 - [ ] **Step 2: Run `npm run check`** and verify the new assertions fail because `lib/agent.mjs` and `chatStructured` do not exist.
 - [ ] **Step 3: Implement the minimal parser and controller** with strict keys, normalized tool arguments, model/audit events, bounded turns/actions, and engine delegation. Do not add worker logic.
 - [ ] **Step 4: Implement Ollama `chatStructured`** as a compatibility wrapper around `/api/chat` that includes the JSON contract in the system message and returns raw assistant content without exposing secrets.
-- [ ] **Step 5: Run `npm run check`** and verify all controller assertions pass.
-- [ ] **Step 6: Commit** `feat: connect chat to bounded local agent loop`.
+- [ ] **Step 5: Add resource-profile assertions** for legacy defaults and bounded context/action limits before wiring them into the server.
+- [ ] **Step 6: Run `npm run check`** and verify all controller and legacy-profile assertions pass.
+- [ ] **Step 7: Commit** `feat: connect chat to bounded local agent loop`.
 
 ### Task 2: Expose the agent loop through the HTTP API
 
@@ -54,8 +57,9 @@
 - [ ] **Step 2: Run `npm run check`** and verify the API assertions fail because chat still performs prose-only planning.
 - [ ] **Step 3: Wire server chat to the controller** while retaining model availability and installed-model checks; create/reuse the task with explicit workspace and record terminal task status.
 - [ ] **Step 4: Add safe test injection** through a non-production function parameter or test-only local provider fixture, without adding an environment secret or bypassing policy in production.
-- [ ] **Step 5: Run `npm run check`** and verify API assertions pass with no regression in health, state, direct actions, or loopback checks.
-- [ ] **Step 6: Commit** `feat: expose bounded agent chat api`.
+- [ ] **Step 5: Wire legacy profile limits and explicit resource metadata** into the API health/config surfaces.
+- [ ] **Step 6: Run `npm run check`** and verify API assertions pass with no regression in health, state, direct actions, or loopback checks.
+- [ ] **Step 7: Commit** `feat: expose bounded agent chat api`.
 
 ### Task 3: Add CLI parity
 
@@ -106,8 +110,9 @@
 - [ ] **Step 2: Run the repository security-scan workflow** against this worktree and retain the generated report/coverage artifacts.
 - [ ] **Step 3: Manually inspect findings** against the model parser, policy boundary, workspace containment, redaction, loop limits, and loopback binding; fix any validated finding test-first.
 - [ ] **Step 4: Execute product benchmarks** for FILE, SHELL, and BROWSER using deterministic fixtures, recording what is actually automated and what still requires Ollama.
-- [ ] **Step 5: Update PRD, changelog, and assessment** with achieved behavior, known gaps, and exact verification commands.
-- [ ] **Step 6: Run final syntax, harness, and git status checks** and commit `docs: assess local agent loop release gate`.
+- [ ] **Step 5: Run the legacy profile on a Docker-unavailable simulation** and prove allowlisted diagnostics work while arbitrary shell commands remain refused.
+- [ ] **Step 6: Update PRD, changelog, and assessment** with achieved behavior, known gaps, Grok Bot concept comparison, and exact verification commands.
+- [ ] **Step 7: Run final syntax, harness, and git status checks** and commit `docs: assess local agent loop release gate`.
 
 ### Task 6: Repeat from verified gap
 
