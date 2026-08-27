@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.4 — 2026-08-27
+
+Public product language is now brand-neutral.
+
+- Removed competitor and third-party product names from public documentation, design notes, release history, and dashboard copy.
+- Replaced provider-specific visible labels with neutral local-model wording without changing the local provider integration or configuration contract.
+- Re-ran the complete release harness: 67 checks passed.
+
 ## 0.3.3 — 2026-08-27
 
 Added reusable local skills for persistent, operator-controlled task behavior.
@@ -11,7 +19,7 @@ Added reusable local skills for persistent, operator-controlled task behavior.
 - Release harness coverage expanded to 67 checks.
 - Existing task workspaces and approval task IDs are now enforced at action execution.
 - Approved shell diagnostics deny arbitrary Node execution and out-of-workspace `ls` paths.
-- Local-only mode rejects non-loopback Ollama URLs unless explicitly opted into remote mode.
+- Local-only mode rejects non-loopback model-runtime URLs unless explicitly opted into remote mode.
 
 ## 0.3.2 — 2026-08-27
 
@@ -38,12 +46,12 @@ Usability follow-up for persistent local work and older laptops.
 
 OpenBot’s first real local-bot release. The product now performs bounded, auditable work instead of only presenting a control panel.
 
-- Added a strict Ollama agent loop with validated structured actions.
+- Added a strict local-model agent loop with validated structured actions.
 - Added safe file reads/diffs, allowlisted shell diagnostics, and loopback browser fetches.
 - Added one-shot approval gates and same-task resume after approval.
 - Added CLI `chat`, dashboard workspace/action/audit UX, and fresh-state initialization without synthetic work.
-- Added `legacy` CPU-only resource profile and Docker-free fixed-path diagnostics.
+- Added `legacy` CPU-only resource profile and container-free fixed-path diagnostics.
 - Hardened persisted audit redaction for sensitive fields, token-like content, diffs, and action results.
 - Added 49 release-harness checks covering product behavior, security boundaries, and portability.
 
-This release remains loopback-only by default. Desktop automation, MCP/connectors, plugins/skills, memory, routines, collaboration, multi-user auth, and remote workers are roadmap work. Natural-language reasoning requires an installed local Ollama model; no OpenBot account or paid service is required.
+This release remains loopback-only by default. Desktop automation, connectors, signed extensions, memory, routines, collaboration, multi-user auth, and remote workers are roadmap work. Natural-language reasoning requires an installed local model; no account or paid service is required.

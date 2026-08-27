@@ -7,15 +7,13 @@
 
 ## 1. Executive summary
 
-OpenBot is a free and open-source, self-hostable, local-first autonomous agent platform with a shared agent core, CLI, Ubuntu desktop app, web UI, API, and sandboxed workers. It should be a credible free/open-source alternative to Grok Bot: able to perform useful computer, browser, file, and research tasks while keeping deployment, data, model choice, provider credentials, permissions, and audit history under the operator's control.
+OpenBot is a free and open-source, self-hostable, local-first autonomous agent platform with a shared agent core, CLI, Linux desktop app, web UI, API, and sandboxed workers. It should perform useful computer, browser, file, and research tasks while keeping deployment, data, model choice, provider credentials, permissions, and audit history under the operator's control.
 
-OpenBot is not yet feature-equivalent to Grok Bot. The current implementation now has a bounded Ollama agent loop that can execute safe file, shell-diagnostic, and browser-fetch actions through the audited engine, while stopping for approval before consequential work. This PRD defines the path from that first real-work slice to a complete product.
+The current implementation has a bounded local-model agent loop that can execute safe file, shell-diagnostic, and browser-fetch actions through the audited engine, while stopping for approval before consequential work. This PRD defines the path from that first real-work slice to a complete product.
 
 ## 2. Evidence and competitive context
 
-Grok Bot is a managed cloud agent product. Its documentation describes persistent user Bots operating a managed Linux computer with browser, filesystem, terminal, shared sessions, routines, MCP/connectors, skills, and plugins. Model and infrastructure choices are product-managed. See [Grok Bot overview](https://docs.x.ai/grok-bot/overview), [skills and routines](https://docs.x.ai/grok-bot/skills-routines-and-automations), and [plugins/marketplaces](https://docs.x.ai/build/features/skills-plugins-marketplaces).
-
-Relevant open-source prior art includes [OpenHands](https://github.com/All-Hands-AI/OpenHands) for agent/runtime separation and sandboxes, [Open Interpreter](https://github.com/OpenInterpreter/open-interpreter) for local computer control, [OpenYak](https://github.com/openyak/openyak) for local desktop agents and MCP, [Somi](https://github.com/Somi-Project/Somi) for self-hosted skills and memory, [Goose](https://github.com/rorystandley/goose) for approvals and scheduling, and [OpenMake LLM](https://github.com/openmake/openmake_llm) for BYOK providers and Docker-isolated execution. These projects are references, not quality or security endorsements; licenses and maintenance must be reviewed before reuse.
+Managed cloud-agent products commonly provide persistent assistants, hosted computers, browser and filesystem access, shared sessions, routines, connectors, skills, and extensions. OpenBot keeps the useful task-execution model while placing deployment, data, model choice, permissions, and audit history under the operator's control. Open-source implementations of local agents, approvals, scheduling, memory, and isolated execution remain useful technical reference material; any reuse requires independent license and maintenance review.
 
 Terminology: **local** means running on the same machine; **self-hostable** means the operator can deploy the complete stack on hardware or infrastructure they control. OpenBot is self-hostable and local-first, but can optionally use an operator-selected cloud model or remote worker. **Free** means no OpenBot license or hosted-account fee is required; users may still incur costs for optional third-party model APIs, hardware, electricity, storage, or hosting.
 
@@ -29,7 +27,7 @@ OpenBot should provide a practical middle path: real work through isolated worke
 
 ## 4. Target users
 
-- **Ubuntu power user:** runs OpenBot on a workstation, uses CLI/SSH, and wants browser, files, and automation without surrendering control.
+- **Linux power user:** runs OpenBot on a workstation, uses CLI/SSH, and wants browser, files, and automation without surrendering control.
 - **Developer/technical operator:** self-hosts OpenBot on a server or LAN, integrates APIs/MCP, and needs reproducible tasks and logs.
 - **Privacy-sensitive professional:** needs local data, explicit approvals, and no hidden uploads.
 - **Small team admin (future):** operates one private instance with users, policies, quotas, and shared skills.
@@ -38,7 +36,7 @@ OpenBot should provide a practical middle path: real work through isolated worke
 
 ### Goals
 
-1. A new operator can install and start the self-hosted core and use both CLI and desktop app in under 15 minutes with Ollama or a configured API provider.
+1. A new operator can install and start the self-hosted core and use both CLI and desktop app in under 15 minutes with a local model runtime or configured API provider.
 2. OpenBot can complete at least three benchmark tasks end-to-end: a file task, a browser research task, and a shell task, each in an isolated workspace.
 3. Every consequential action has a clear policy decision, approval record, actor, tool, arguments, result, and timestamp.
 4. The operator can switch models/providers per agent or task without changing application code, while secrets remain outside prompts and logs.
@@ -48,7 +46,7 @@ OpenBot should provide a practical middle path: real work through isolated worke
 ### Non-goals for v1
 
 - Building or training a foundation model.
-- Claiming parity with Grok Bot's model quality or managed-cloud reliability.
+- Claiming parity with any managed service's model quality or hosted reliability.
 - Unrestricted root-level desktop automation.
 - A public plugin marketplace before signing, permissions, and review are defined.
 - Multi-tenant SaaS billing, enterprise SSO, or hosted infrastructure.
@@ -60,7 +58,7 @@ OpenBot should provide a practical middle path: real work through isolated worke
 - **Least privilege:** workers receive only the workspace, tools, credentials, and network access required for a task.
 - **Approval before impact:** sending, publishing, purchasing, deletion, credential use, and production changes require approval by default.
 - **Never pretend:** the agent must distinguish planning, proposed actions, completed actions, and failed actions.
-- **Provider-neutral:** Ollama first, then OpenAI-compatible endpoints and explicit adapters for other providers.
+- **Provider-neutral:** local model runtime first, then compatible endpoints and explicit adapters for other providers.
 - **Recoverable by design:** pause, cancel, resume, replay, and rollback are first-class operations.
 
 ## 7. Current audit of the MVP
@@ -69,7 +67,7 @@ OpenBot should provide a practical middle path: real work through isolated worke
 
 - Node server starts successfully on port 4178.
 - JavaScript syntax checks pass for `server.mjs` and `public/app.js`.
-- Ollama health endpoint reports six installed models on the audited machine.
+- Local model health endpoint reports installed models on the audited machine.
 - Chat request successfully returned a local model response.
 - Approval decisions persist to `data/state.json`.
 - Dashboard provides a coherent visual shell for health, approvals, routines, and chat.
@@ -98,13 +96,13 @@ The first meaningful “bot, not control panel” milestone is implemented on th
 - Operators can save, list, and delete workspace-scoped local memory; only matching memory is injected into agent context after redaction.
 - Operators can save, list, select, and delete local skills; selected skills are redacted, bounded, audited, and injected only as untrusted guidance under the OpenBot policy.
 
-This is not a claim of Grok Bot parity. Grok Bot's managed cloud computer, persistent shared environment, connectors/MCP, routines, and collaboration remain OpenBot roadmap items; OpenBot currently provides scoped operator-controlled local memory plus explicit declarative local skills. OpenBot's differentiator is local ownership, zero mandatory spend, and inspectable policy/audit behavior.
+This is not a claim of parity with a managed cloud service. Hosted computers, persistent shared environments, connectors, routines, and collaboration remain OpenBot roadmap items; OpenBot currently provides scoped operator-controlled local memory plus explicit declarative local skills. OpenBot's differentiator is local ownership, zero mandatory spend, and inspectable policy/audit behavior.
 
 ## 8. User stories
 
-### Ubuntu operator
+### Linux operator
 
-- As an Ubuntu user, I want to install OpenBot from the CLI so that I can run it without a hosted account.
+- As a Linux user, I want to install OpenBot from the CLI so that I can run it without a hosted account.
 - As an operator, I want to open a desktop app connected to the same local daemon so that I can watch, approve, pause, and resume tasks.
 - As an operator, I want a task to run in a disposable workspace so that an agent cannot modify unrelated files.
 - As an operator, I want to see the exact command, URL, file diff, or message before approval so that I understand the impact.
@@ -113,7 +111,7 @@ This is not a claim of Grok Bot parity. Grok Bot's managed cloud computer, persi
 
 - As a developer, I want to add an MCP server with an allowlist so that agents can use controlled external tools.
 - As a developer, I want to define a versioned skill with inputs, tools, tests, and permissions so that automations are reproducible.
-- As an operator, I want to select Ollama or a BYOK provider per task so that cost, quality, and privacy are explicit.
+- As an operator, I want to select a local model runtime or a bring-your-own provider per task so that cost, quality, and privacy are explicit.
 
 ### Privacy-sensitive user
 
@@ -144,7 +142,7 @@ Acceptance criteria:
 - Approval and cancellation work without opening the desktop app.
 - CLI returns non-zero exit codes for failed, rejected, or unavailable tasks.
 
-#### P0.3 Ubuntu desktop app
+#### P0.3 Linux desktop app
 
 Provide a Linux desktop app that connects to the daemon over a local authenticated channel.
 
@@ -167,7 +165,7 @@ Acceptance criteria:
 
 #### P0.5 Provider hub
 
-Support Ollama and one OpenAI-compatible provider first; design an adapter interface for additional providers and OAuth-capable integrations.
+Support a local model runtime and one compatible provider first; design an adapter interface for additional providers and OAuth-capable integrations.
 
 Acceptance criteria:
 
@@ -203,7 +201,7 @@ Acceptance criteria:
 - Versioned skills with manifests, permission declarations, fixtures, tests, and import/export.
 - Plugin SDK with process isolation and capability permissions.
 - Real scheduler with timezone, missed-run policy, retry policy, concurrency limits, and run history.
-- Browser worker using Playwright/Browser Use with isolated profiles and domain policies.
+- Browser worker using isolated profiles and domain policies.
 - Desktop worker using explicit screen/input permissions and an emergency stop.
 - Memory scoped by user, agent, task, and workspace with retention controls.
 - Optional remote worker for a self-hosted private server while the desktop remains a client.
@@ -219,7 +217,7 @@ Acceptance criteria:
 ### Free/open-source requirements
 
 - No mandatory OpenBot SaaS account, telemetry, subscription, or license server.
-- Local-only installation must remain fully functional with Ollama and open models.
+- Local-only installation must remain fully functional with an open local model runtime and open models.
 - Optional provider integrations must be opt-in and clearly identify third-party costs.
 - The repository must include source, build instructions, tests, container definitions, and release artifacts needed for self-hosting.
 - No core feature may be intentionally disabled solely to force users toward a hosted OpenBot service.
@@ -259,18 +257,18 @@ Acceptance criteria:
 1. **File task:** inspect a fixture repository, make a requested change, show a diff, and require approval before writing.
 2. **Browser research:** visit an allowlisted set of sites, summarize findings, save Markdown locally, and cite URLs.
 3. **Shell task:** run a safe diagnostic command in a sandbox, explain output, and refuse an unapproved destructive command.
-4. **Provider switch:** complete the same task with Ollama and an OpenAI-compatible endpoint while preserving the same policy/audit behavior.
+4. **Provider switch:** complete the same task with a local model runtime and a compatible endpoint while preserving the same policy/audit behavior.
 5. **Recovery:** kill the worker mid-task, restart the daemon, resume, and verify no duplicate external side effect.
 
 ## 13. Proposed architecture and dependencies
 
-- **Core:** TypeScript daemon with a durable SQLite/Postgres event store and versioned task schema.
-- **Execution:** rootless Docker/Podman or another isolated runtime; borrow proven runtime concepts from OpenHands rather than executing directly in the server process.
-- **Browser:** Playwright-based worker; optionally integrate Browser Use MCP.
-- **Models:** Ollama local API plus OpenAI-compatible adapter; provider interface must support streaming, tool calling, cancellation, and usage accounting.
-- **Extensions:** MCP SDK, signed skill manifests, isolated plugin processes.
-- **Clients:** CLI first, then Tauri desktop app, then web/API parity.
-- **Packaging:** one-command installer for Ubuntu, systemd user service, health/doctor command, and documented upgrade/rollback.
+- **Core:** JavaScript daemon with a durable event store and versioned task schema.
+- **Execution:** rootless container runtime or another isolated runtime; workers must not execute directly with unrestricted server privileges.
+- **Browser:** policy-controlled browser worker with an explicit allowlist.
+- **Models:** local model API plus compatible adapter; provider interface must support streaming, tool calling, cancellation, and usage accounting.
+- **Extensions:** signed skill manifests and isolated extension processes.
+- **Clients:** CLI first, then desktop app, then web/API parity.
+- **Packaging:** one-command installer for Linux, user service, health/doctor command, and documented upgrade/rollback.
 
 ## 14. Delivery phases
 
@@ -280,7 +278,7 @@ Replace JSON state with durable task/event storage, define policy and provider i
 
 ### Phase 1 — first real work
 
-Ship isolated file/shell worker, approvals, audit export, Ollama provider, and the three benchmark tasks.
+Ship isolated file/shell worker, approvals, audit export, local model provider, and the three benchmark tasks.
 
 ### Phase 2 — usable clients
 
@@ -292,19 +290,19 @@ Add browser worker, MCP registry, skills, plugins, and scheduler.
 
 ### Phase 4 — hardening and differentiation
 
-Add desktop worker, memory scopes, remote self-hosted workers, team policies, security review, and comparative benchmark reporting against Grok Bot and selected open-source alternatives.
+Add desktop worker, memory scopes, remote self-hosted workers, team policies, security review, and comparative benchmark reporting against managed and open-source alternatives.
 
 ## 15. Open questions
 
-- **Engineering:** Tauri or Electron for the first desktop release?
-- **Engineering:** Docker, Podman, or a dedicated sandbox runtime as the supported isolation boundary?
+- **Engineering:** Which desktop shell should be supported first?
+- **Engineering:** Which container or sandbox runtime should be the supported isolation boundary?
 - **Security:** Which actions always require approval, even under a user-defined policy?
 - **Product:** Is desktop automation P0 or P1 after shell/files/browser?
-- **Product:** Which two cloud providers are required at launch besides Ollama?
+- **Product:** Which two optional cloud providers are required at launch besides the local model runtime?
 - **Legal:** Which open-source projects or SDKs can be reused under their licenses?
 - **Design:** Should the default experience be task-first chat, a terminal-first interface, or both equally?
 - **Operations:** Does the project support only one local user initially, or authenticated LAN users?
 
 ## 16. Release decision
 
-Do not market the current prototype as an autonomous Grok Bot alternative. Release it as an **OpenBot control-plane preview**. The first meaningful free/open-source alternative milestone is reached only when the CLI and desktop app can complete the benchmark tasks through isolated workers with approvals, recovery, and auditable evidence, using a no-account local installation.
+Do not market the current prototype as a complete autonomous agent. Release it as an **OpenBot local-agent preview**. The first meaningful free/open-source milestone is reached only when the CLI and desktop app can complete the benchmark tasks through isolated workers with approvals, recovery, and auditable evidence, using a no-account local installation.

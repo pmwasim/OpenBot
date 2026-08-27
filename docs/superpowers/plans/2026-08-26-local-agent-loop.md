@@ -6,7 +6,7 @@
 
 **Architecture:** Add a small `lib/agent.mjs` controller that parses a strict JSON model envelope and delegates every action to the existing engine. Extend the HTTP, CLI, and console surfaces to invoke and display that controller while preserving existing direct action APIs and local-only defaults.
 
-**Tech Stack:** Node.js ESM, built-in `node:test`-compatible harness style, Node HTTP server, Ollama HTTP API, existing append-only JSONL store, existing workers and policy engine, vanilla browser JavaScript.
+**Tech Stack:** JavaScript ESM, built-in test-compatible harness style, HTTP server, local model HTTP API, existing append-only JSONL store, existing workers and policy engine, vanilla browser JavaScript.
 
 **Spec:** `docs/superpowers/specs/2026-08-26-local-agent-loop-design.md`
 
@@ -16,7 +16,7 @@
 - Model prose is never executable; only strict parsed structured actions reach the engine.
 - Preserve loopback-only defaults, explicit workspace paths, existing policy decisions, redaction, and approval binding.
 - Maximum default agent loop is 6 turns and 6 actions; pending approval terminates the loop.
-- `OPENBOT_RESOURCE_PROFILE=legacy` must run the core on CPU-only older laptops with 3 turns/actions, compact context, and no Docker requirement for allowlisted diagnostics.
+- `OPENBOT_RESOURCE_PROFILE=legacy` must run the core on CPU-only older laptops with 3 turns/actions, compact context, and no container requirement for allowlisted diagnostics.
 - Do not add a runtime dependency that is not already available in a stock Node.js LTS installation.
 - Existing `/api/chat`, direct `/api/actions`, CLI, worker, and harness behavior must remain compatible unless covered by new tests.
 
@@ -37,7 +37,7 @@
 - [ ] **Step 1: Write failing harness assertions** for valid final replies, valid actions, unknown tools, malformed JSON, safe multi-turn execution, pending approval stop, and turn-limit stop. Use a deterministic fake provider and a real temporary workspace/engine.
 - [ ] **Step 2: Run `npm run check`** and verify the new assertions fail because `lib/agent.mjs` and `chatStructured` do not exist.
 - [ ] **Step 3: Implement the minimal parser and controller** with strict keys, normalized tool arguments, model/audit events, bounded turns/actions, and engine delegation. Do not add worker logic.
-- [ ] **Step 4: Implement Ollama `chatStructured`** as a compatibility wrapper around `/api/chat` that includes the JSON contract in the system message and returns raw assistant content without exposing secrets.
+- [ ] **Step 4: Implement the local model `chatStructured` adapter** as a compatibility wrapper around `/api/chat` that includes the JSON contract in the system message and returns raw assistant content without exposing secrets.
 - [ ] **Step 5: Add resource-profile assertions** for legacy defaults and bounded context/action limits before wiring them into the server.
 - [ ] **Step 6: Run `npm run check`** and verify all controller and legacy-profile assertions pass.
 - [ ] **Step 7: Commit** `feat: connect chat to bounded local agent loop`.
@@ -109,9 +109,9 @@
 - [ ] **Step 1: Run `npm run check`** and capture the complete pass count and benchmark evidence.
 - [ ] **Step 2: Run the repository security-scan workflow** against this worktree and retain the generated report/coverage artifacts.
 - [ ] **Step 3: Manually inspect findings** against the model parser, policy boundary, workspace containment, redaction, loop limits, and loopback binding; fix any validated finding test-first.
-- [ ] **Step 4: Execute product benchmarks** for FILE, SHELL, and BROWSER using deterministic fixtures, recording what is actually automated and what still requires Ollama.
-- [ ] **Step 5: Run the legacy profile on a Docker-unavailable simulation** and prove allowlisted diagnostics work while arbitrary shell commands remain refused.
-- [ ] **Step 6: Update PRD, changelog, and assessment** with achieved behavior, known gaps, Grok Bot concept comparison, and exact verification commands.
+- [ ] **Step 4: Execute product benchmarks** for FILE, SHELL, and BROWSER using deterministic fixtures, recording what is actually automated and what still requires a local model service.
+- [ ] **Step 5: Run the legacy profile on a container-unavailable simulation** and prove allowlisted diagnostics work while arbitrary shell commands remain refused.
+- [ ] **Step 6: Update PRD, changelog, and assessment** with achieved behavior, known gaps, managed-agent concept comparison, and exact verification commands.
 - [ ] **Step 7: Run final syntax, harness, and git status checks** and commit `docs: assess local agent loop release gate`.
 
 ### Task 6: Repeat from verified gap

@@ -6,16 +6,16 @@ OpenBot's authoritative `main` branch already has durable task state, policy dec
 
 ## Goal
 
-Connect natural-language chat to the existing audited execution core so a local Ollama-backed OpenBot can complete bounded file, shell, and browser tasks while preserving explicit approval for consequential actions, zero-cost local operation, and evidence-backed audit history.
+Connect natural-language chat to the existing audited execution core so a local-model-backed OpenBot can complete bounded file, shell, and browser tasks while preserving explicit approval for consequential actions, zero-cost local operation, and evidence-backed audit history.
 
-The product target is the useful part of Grok Bot's concept—persistent named teammates that use tools, maintain task context, collaborate, and stop for approval—without requiring Grok Bot's managed cloud computer, paid seat, or hosted account. OpenBot must also run on older CPU-only laptops: the core cannot require Docker, a GPU, a native desktop shell, or large runtime dependencies.
+The product target is a useful local-agent experience—persistent named teammates that use tools, maintain task context, collaborate, and stop for approval—without requiring a managed cloud computer, paid seat, or hosted account. OpenBot must also run on older CPU-only laptops: the core cannot require container isolation, a GPU, a native desktop shell, or large runtime dependencies.
 
 ## Non-goals for this iteration
 
 - No unrestricted desktop input, credentials, MCP servers, plugins, routines, or remote workers.
 - No claim that every laptop can run a large local model; legacy mode must run the core and bounded workers on CPU-only hardware and clearly report when a model is the limiting dependency.
 - No automatic execution of deletion, publishing, purchasing, production changes, credential use, or external communication.
-- No dependency on a live Ollama service for automated tests.
+- No dependency on a live model service for automated tests.
 - No interpretation of arbitrary model prose as an executable command.
 - No non-loopback exposure or authentication redesign in this iteration.
 
@@ -33,7 +33,7 @@ The product target is the useful part of Grok Bot's concept—persistent named t
 
 ### Agent controller
 
-Add a focused `lib/agent.mjs` controller. It owns the bounded conversation loop, strict response parsing, tool schema, turn/action limits, model request/response audit events, and calls the existing `createEngine` action boundary. It does not implement workers or policy. The controller accepts injected `chat` and `engine` dependencies so deterministic tests can exercise the loop without Ollama.
+Add a focused `lib/agent.mjs` controller. It owns the bounded conversation loop, strict response parsing, tool schema, turn/action limits, model request/response audit events, and calls the existing `createEngine` action boundary. It does not implement workers or policy. The controller accepts injected `chat` and `engine` dependencies so deterministic tests can exercise the loop without a live model service.
 
 The accepted model envelope is JSON only:
 
@@ -51,7 +51,7 @@ Exactly one of `reply` or `action` is required for each model turn. Unknown keys
 
 ### Provider adapter
 
-Extend the Ollama adapter with a structured-chat option that accepts the tool contract in the system prompt and returns the raw assistant content for the controller to parse. Keep the existing ordinary chat behavior intact. The provider must not receive secrets from the event store or expose raw provider errors in audit output.
+Extend the local-model adapter with a structured-chat option that accepts the tool contract in the system prompt and returns the raw assistant content for the controller to parse. Keep the existing ordinary chat behavior intact. The provider must not receive secrets from the event store or expose raw provider errors in audit output.
 
 ### HTTP boundary
 
@@ -73,17 +73,17 @@ Add `node cli/openbot.mjs chat --workspace <path> "..."` as a thin client around
 - Results are redacted before model context and API response where existing redaction applies.
 - Workspace remains explicit; `local` is not silently converted to the repository or home directory.
 - The server remains loopback-only by default.
-- `OPENBOT_RESOURCE_PROFILE=legacy` selects low-resource defaults: 3 model turns, 3 actions, a compact context budget, and no Docker requirement for allowlisted diagnostics. The standard profile keeps the larger bounded defaults.
-- When Docker is unavailable, the shell worker may run only the already policy-allowlisted diagnostic commands directly inside the explicit workspace; arbitrary commands, mutations, and destructive operations remain refused. This is a portability mode, not a general sandbox.
+- `OPENBOT_RESOURCE_PROFILE=legacy` selects low-resource defaults: 3 model turns, 3 actions, a compact context budget, and no container requirement for allowlisted diagnostics. The standard profile keeps the larger bounded defaults.
+- When container isolation is unavailable, the shell worker may run only the already policy-allowlisted diagnostic commands directly inside the explicit workspace; arbitrary commands, mutations, and destructive operations remain refused. This is a portability mode, not a general sandbox.
 
 ## Resource profiles
 
 | Profile | Model turns/actions | Isolation | Intended host |
 | --- | ---: | --- | --- |
-| `legacy` | 3 / 3 | Docker optional; allowlisted diagnostics may use bounded cwd mode | Older CPU-only laptop |
-| `standard` | 6 / 6 | Docker when available, otherwise explicit safe fallback | Modern local workstation |
+| `legacy` | 3 / 3 | Container optional; allowlisted diagnostics may use bounded cwd mode | Older CPU-only laptop |
+| `standard` | 6 / 6 | Container when available, otherwise explicit safe fallback | Modern local workstation |
 
-Both profiles keep loopback-only binding, local storage, approval gates, workspace containment, and output/time limits. Ollama remains optional for core administration but is required for natural-language agent reasoning; the doctor command must distinguish a missing model from a broken installation.
+Both profiles keep loopback-only binding, local storage, approval gates, workspace containment, and output/time limits. A local model remains optional for core administration but is required for natural-language agent reasoning; the doctor command must distinguish a missing model from a broken installation.
 
 ## Testing and audit
 

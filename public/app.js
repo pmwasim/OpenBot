@@ -115,11 +115,11 @@ async function load() {
   ]);
   const dot = document.querySelector('#health-dot');
   modelName = health.models?.[0] || '';
-  document.querySelector('#ollama').textContent = health.online ? 'Ollama local' : 'Ollama offline';
+  document.querySelector('#ollama').textContent = health.online ? 'Local model online' : 'Local model offline';
   document.querySelector('#model-count').textContent = health.online
     ? `${health.models.length} model${health.models.length === 1 ? '' : 's'} available`
-    : 'Start Ollama to activate local intelligence';
-  document.querySelector('#model-label').textContent = modelName || (health.online ? 'No model installed' : 'Ollama offline');
+    : 'Start the local model service to activate local intelligence';
+  document.querySelector('#model-label').textContent = modelName || (health.online ? 'No model installed' : 'Local model offline');
   dot.style.background = health.online ? 'var(--green)' : '#e78290';
   renderState(state, taskResponse);
   await Promise.all([loadMemories(workspace.value.trim()), loadSkills()]);
