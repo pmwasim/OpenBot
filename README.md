@@ -10,11 +10,11 @@ OpenBot is a free, open-source, local-first bot that turns a task into bounded, 
 - Durable task/event history, recent-task dashboard cards, redacted audit export, CLI parity, action cards, and task audit links.
 - Interrupted tasks can be resumed from the CLI, API, or dashboard after the daemon is reopened, retaining the same task identity and event history.
 - Explicit workspace-scoped local memory managed from the dashboard, API, or CLI; only matching memory reaches the agent.
-- Workspace-scoped memory facts can be edited in place from the CLI without changing their scope or durable identity.
+- Workspace-scoped memory facts can be edited in place from the dashboard or CLI without changing their scope or durable identity.
 - Operator-owned local skills managed from the dashboard, API, or CLI; skills are explicit, bounded guidance and cannot grant tools or bypass approvals.
-- Local skill definitions can be edited from the CLI without losing their durable identity or existing bot/routine references.
+- Local skill definitions can be edited from the dashboard or CLI without losing their durable identity or existing bot/routine references.
 - Durable named local bots with a role, instructions, workspace, optional skill, and bounded conversation history managed from the dashboard, API, or CLI.
-- Named bot profiles can be edited from the CLI, including role, instructions, workspace, and selected skill, through either the local store or shared daemon.
+- Named bot profiles can be edited from the dashboard or CLI, including role and instructions in the dashboard and workspace or selected skill through CLI, without losing profile history.
 - Local routines managed from the dashboard, API, or CLI; schedules are explicit, runs are durable, and Run now uses the same approval-safe agent loop.
 - Portable daemon lifecycle: run OpenBot in the foreground or detach it into a local background process with status, duplicate-start protection, clean stop, and a data-directory log.
 - Incremental task activity feed: the API exposes a bounded event offset and the dashboard shows the latest activity while pending, running, or approval-bound work is active.
@@ -61,7 +61,7 @@ Natural-language tasks require a locally installed model runtime. Core administr
 
 ## Product boundary
 
-The current release is a real local bot loop with durable named bots, reusable local skills, explicit local routines, incremental task activity visibility, daemon-routed CLI administration, task management, and control, plus a lightweight desktop launcher. Desktop automation, connectors, signed extensions, collaboration, multi-user auth, and remote workers remain future work. Local reusable skills are supported as operator-selected instruction packs; they are not executable extensions and cannot expand the policy or tool boundary. The server remains loopback-only by default; explicit LAN mode uses the bearer-token boundary documented in `SECURITY.md`. The scheduler runs while the local daemon is running; it does not install an OS background service.
+The current release is a real local bot loop with durable named bots, reusable local skills, explicit local routines, incremental task activity visibility, daemon-routed CLI administration, task management, and control, plus a lightweight desktop launcher. The dashboard supports in-place editing of bot role/instructions, skill definitions, and workspace memory while preserving durable identity and scope. Desktop automation, connectors, signed extensions, collaboration, multi-user auth, and remote workers remain future work. Local reusable skills are supported as operator-selected instruction packs; they are not executable extensions and cannot expand the policy or tool boundary. The server remains loopback-only by default; explicit LAN mode uses the bearer-token boundary documented in `SECURITY.md`. The scheduler runs while the local daemon is running; it does not install an OS background service.
 
 `start --detach` keeps the daemon running after the terminal closes and writes its process record and runtime log under `OPENBOT_DATA_DIR` (default: `data/`). Use `status` to check the daemon and local model health, and `stop` for a clean shutdown. This is host-local background execution: shutting down or sleeping the laptop stops local work.
 

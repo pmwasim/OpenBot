@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.11 — 2026-08-27
+
+Added dashboard editing parity for operator-owned configuration.
+
+- Edit named bot names, roles, and instructions inline without losing conversation history or task associations.
+- Edit local skill names, descriptions, and instructions without losing durable references.
+- Edit workspace-scoped memory keys and values without changing their originating workspace.
+- Reuse the existing validated, redacted PATCH API and add safe DOM-only editor controls with cancel and error recovery.
+- Expand release verification to cover the dashboard editing contract alongside the existing API, CLI, and daemon paths.
+
 ## 0.4.10 — 2026-08-27
 
 Added workspace-memory editing parity.

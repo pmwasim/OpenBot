@@ -98,6 +98,84 @@ function watchTaskActivity(tasks) {
   }
 }
 
+function editField(labelText, value, { multiline = false, required = false } = {}) {
+  const label = element('label', 'edit-field');
+  label.append(element('span', '', labelText));
+  const control = element(multiline ? 'textarea' : 'input');
+  control.value = value || '';
+  control.required = required;
+  label.append(control);
+  return control;
+}
+
+function renderEditor(card, fields, saveEdit, cancelEdit) {
+  const editor = element('form', 'edit-form');
+  const controls = fields.map((field) => editField(field.label, field.value, field));
+  const actions = element('div', 'routine-controls');
+  const cancel = element('button', 'text', 'Cancel');
+  cancel.type = 'button';
+  cancel.addEventListener('click', cancelEdit);
+  const save = element('button', 'text', 'Save');
+  save.type = 'submit';
+  actions.append(cancel, save);
+  editor.append(...controls, actions);
+  editor.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    save.disabled = true;
+    try {
+      const values = Object.fromEntries(fields.map((field, index) => [field.key, controls[index].value.trim()]));
+      await saveEdit(values);
+    } catch (error) {
+      addMessage('error', 'OpenBot', error.message || 'The change could not be saved.');
+      save.disabled = false;
+    }
+  });
+  card.replaceChildren(editor);
+}
+
+async function patchRecord(url, payload) {
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'The change could not be saved.');
+  return data;
+}
+
+function editMemory(memory, card) {
+  renderEditor(card, [
+    { key: 'key', label: 'Key', value: memory.key, required: true },
+    { key: 'value', label: 'Value', value: memory.value, required: true }
+  ], async (values) => {
+    await patchRecord(`/api/memories/${encodeURIComponent(memory.id)}`, values);
+    await loadMemories(workspace.value.trim());
+  }, () => loadMemories(workspace.value.trim()).catch(() => {}));
+}
+
+function editSkill(skill, card) {
+  renderEditor(card, [
+    { key: 'name', label: 'Name', value: skill.name, required: true },
+    { key: 'description', label: 'Description', value: skill.description },
+    { key: 'instructions', label: 'Instructions', value: skill.instructions, multiline: true, required: true }
+  ], async (values) => {
+    await patchRecord(`/api/skills/${encodeURIComponent(skill.id)}`, values);
+    await loadSkills();
+  }, () => loadSkills().catch(() => {}));
+}
+
+function editBot(bot, card) {
+  renderEditor(card, [
+    { key: 'name', label: 'Name', value: bot.name, required: true },
+    { key: 'role', label: 'Role', value: bot.role },
+    { key: 'instructions', label: 'Instructions', value: bot.instructions, multiline: true, required: true }
+  ], async (values) => {
+    await patchRecord(`/api/bots/${encodeURIComponent(bot.id)}`, values);
+    await load();
+  }, () => load().catch(() => {}));
+}
+
 function renderMemories(memories) {
   const container = document.querySelector('#memories');
   container.replaceChildren();
@@ -105,12 +183,14 @@ function renderMemories(memories) {
     const card = element('div', 'health memory-card');
     const details = element('div');
     details.append(element('b', '', memory.key), element('small', '', memory.value));
+    const edit = element('button', 'text', 'Edit');
+    edit.addEventListener('click', () => editMemory(memory, card));
     const remove = element('button', 'text', 'Delete');
     remove.addEventListener('click', async () => {
       await fetch(`/api/memories/${encodeURIComponent(memory.id)}`, { method: 'DELETE' });
       await loadMemories(workspace.value.trim());
     });
-    card.append(details, remove);
+    card.append(details, edit, remove);
     container.append(card);
   }
 }
@@ -139,12 +219,14 @@ function renderSkills(skills) {
     const card = element('div', 'health memory-card');
     const details = element('div');
     details.append(element('b', '', skill.name), element('small', '', skill.description || 'Reusable local instructions'));
+    const edit = element('button', 'text', 'Edit');
+    edit.addEventListener('click', () => editSkill(skill, card));
     const remove = element('button', 'text', 'Delete');
     remove.addEventListener('click', async () => {
       await fetch(`/api/skills/${encodeURIComponent(skill.id)}`, { method: 'DELETE' });
       await loadSkills();
     });
-    card.append(details, remove);
+    card.append(details, edit, remove);
     container.append(card);
   }
   if ([...skillSelect.options].some((option) => option.value === selected)) skillSelect.value = selected;
@@ -163,12 +245,14 @@ function renderBots(bots) {
     const card = element('div', 'health memory-card');
     const details = element('div');
     details.append(element('b', '', bot.name), element('small', '', `${bot.role || 'Local bot'} · ${bot.messageCount || 0} messages`));
+    const edit = element('button', 'text', 'Edit');
+    edit.addEventListener('click', () => editBot(bot, card));
     const remove = element('button', 'text', 'Delete');
     remove.addEventListener('click', async () => {
       await fetch(`/api/bots/${encodeURIComponent(bot.id)}`, { method: 'DELETE' });
       await load();
     });
-    card.append(details, remove);
+    card.append(details, edit, remove);
     container.append(card);
   }
   if ([...botSelect.options].some((option) => option.value === selected)) botSelect.value = selected;
