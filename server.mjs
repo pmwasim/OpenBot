@@ -153,7 +153,7 @@ async function runAgentTask({ taskId, prompt, workspace, model, providerName, ma
       store,
       provider: selectedProvider,
       providerName: selectedProviderName,
-      engine: createEngine({ store, actor: 'agent' }),
+      engine: createEngine({ store, actor: 'agent', browserAllowHosts: config.browserAllowHosts }),
       actor: 'agent',
       maxTurns: Math.min(Number(maxTurns) > 0 ? Number(maxTurns) : config.agentMaxTurns, config.agentMaxTurns),
       maxActions: config.agentMaxActions,
@@ -492,7 +492,7 @@ const app = http.createServer(async (req, res) => {
     }
     if (url.pathname === '/api/actions' && req.method === 'POST') {
       const payload = await body(req);
-      const engine = createEngine({ store, actor: 'api' });
+      const engine = createEngine({ store, actor: 'api', browserAllowHosts: config.browserAllowHosts });
       const acted = await engine.act(payload);
       return json(res, acted.ok || acted.status === 'needs_approval' ? 200 : (acted.status === 'denied' ? 403 : 500), acted);
     }

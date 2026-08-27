@@ -233,11 +233,11 @@ function workerTool(flags) {
   return flags.tool || flags.kind || '';
 }
 
-async function runWorker(store, flags) {
+async function runWorker(store, flags, config) {
   const tool = workerTool(flags);
   if (!tool) fail(Object.assign(new Error('Worker tool is required (--tool).'), { exitCode: 1 }));
   if (!flags.workspace) fail(Object.assign(new Error('Workspace is required (--workspace).'), { exitCode: 1 }));
-  const engine = createEngine({ store, actor: 'cli' });
+  const engine = createEngine({ store, actor: 'cli', browserAllowHosts: config.browserAllowHosts });
   const args = {};
   if (flags.path) args.path = flags.path;
   if (flags.outputPath) args.path = flags.outputPath;
@@ -325,7 +325,7 @@ async function runAgent(store, config, flags, prompt, options = {}) {
     store,
     provider,
     providerName,
-    engine: createEngine({ store, actor: 'agent' }),
+    engine: createEngine({ store, actor: 'agent', browserAllowHosts: config.browserAllowHosts }),
     actor: 'agent',
     maxTurns: config.agentMaxTurns,
     maxActions: config.agentMaxActions,
@@ -680,7 +680,7 @@ async function main() {
   }
 
   if (command === 'act' || command === 'propose') {
-    await runWorker(store, flags);
+    await runWorker(store, flags, config);
     return;
   }
 
@@ -690,7 +690,7 @@ async function main() {
   }
 
   if (command === 'execute') {
-    await runWorker(store, { ...flags, approvalId: flags.approvalId || positional[1] });
+    await runWorker(store, { ...flags, approvalId: flags.approvalId || positional[1] }, config);
     return;
   }
 

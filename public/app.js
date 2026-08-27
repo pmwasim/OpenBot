@@ -106,6 +106,7 @@ async function showSettings() {
       ['Compatible provider', config.remoteCompatible],
       ['Provider key', config.remoteApiKey],
       ['Daemon binding', `${config.host}:${config.port}`],
+      ['Browser hosts', (config.browserAllowHosts || []).join(', ') || 'loopback defaults'],
       ['Agent limits', `${config.agentMaxTurns} turns · ${config.agentMaxActions} actions · ${config.agentContextChars} context chars`]
     ];
     content.replaceChildren(...values.map(([label, value]) => {

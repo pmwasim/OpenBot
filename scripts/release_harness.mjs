@@ -109,6 +109,9 @@ async function main() {
   const serverSource = await readFile(join(root, 'server.mjs'), 'utf8');
   const cliSource = await readFile(join(root, 'cli/openbot.mjs'), 'utf8');
   const clientSource = await readFile(join(root, 'lib/client.mjs'), 'utf8');
+  const configSource = await readFile(join(root, 'lib/config.mjs'), 'utf8');
+  const policySource = await readFile(join(root, 'lib/policy.mjs'), 'utf8');
+  const browserSource = await readFile(join(root, 'lib/workers/browser.mjs'), 'utf8');
   if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"') || !indexSource.includes('id="recent-tasks"') || !indexSource.includes('id="memories"') || !indexSource.includes('id="memory-form"') || !indexSource.includes('id="skills"') || !indexSource.includes('id="skill-form"') || !indexSource.includes('id="routine-form"') || !indexSource.includes('id="routine-schedule"') || !indexSource.includes('id="bot"') || !indexSource.includes('id="bot-form"') || !indexSource.includes('id="bot-name"') || !indexSource.includes('id="provider"') || !indexSource.includes('id="model"')) throw new Error('dashboard is missing workspace, provider, model, bot, task history, memory, skill, or routine controls');
   if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/export') || !appSource.includes('/result') || !appSource.includes('/artifacts') || !appSource.includes('Open structured result') || !appSource.includes('Artifacts') || !appSource.includes('Download audit') || !appSource.includes('/resume') || !appSource.includes('resumeTask') || !appSource.includes('Resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/tasks/') || !appSource.includes('after=') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('/api/routines') || !appSource.includes('/api/bots') || !appSource.includes('/messages') || !appSource.includes('loadBotConversation') || !appSource.includes('Run now') || !appSource.includes('botId') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, recovery, task history, live activity, memory, skills, routines, bots, persistent conversations, and result/artifact delivery');
   if (appSource.includes('e.innerHTML=`')) throw new Error('dashboard renders state with unsafe innerHTML');
@@ -147,8 +150,16 @@ async function main() {
   pass('server exposes scoped task artifact inventory and access');
   if (!serverSource.includes("url.pathname.endsWith('/messages')") || !serverSource.includes('listBotMessages')) throw new Error('server does not expose bounded named bot conversation history');
   pass('server exposes bounded named bot conversation history');
+  if (!configSource.includes('OPENBOT_BROWSER_ALLOW_HOSTS') || !policySource.includes('allowHosts') || !browserSource.includes('allowHosts') || !serverSource.includes('browserAllowHosts')) throw new Error('browser host allowlist is not explicit across configuration, policy, worker, and daemon');
+  pass('browser access uses an explicit configurable host allowlist');
   const { taskResultView, TASK_RESULT_LIMITS } = await import(pathToFileURL(join(root, 'lib/task-result.mjs')).href);
   const { taskArtifactInventory, redactArtifactContent, TASK_ARTIFACT_LIMITS } = await import(pathToFileURL(join(root, 'lib/task-artifacts.mjs')).href);
+  const { classifyBrowserUrl } = await import(pathToFileURL(join(root, 'lib/policy.mjs')).href);
+  const { loadConfig: loadBrowserConfig } = await import(pathToFileURL(join(root, 'lib/config.mjs')).href);
+  if (classifyBrowserUrl('https://example.com').allowlisted || !classifyBrowserUrl('https://example.com', { allowHosts: ['example.com'] }).allowlisted || classifyBrowserUrl('https://sub.example.com', { allowHosts: ['example.com'] }).allowlisted) throw new Error('browser host allowlist is not exact and opt-in');
+  const configuredBrowserHosts = loadBrowserConfig({ OPENBOT_BROWSER_ALLOW_HOSTS: 'Example.com, docs.example.com, https://invalid.example', OPENBOT_MODEL_URL: 'http://127.0.0.1:11434' }).browserAllowHosts;
+  if (JSON.stringify(configuredBrowserHosts) !== JSON.stringify(['example.com', 'docs.example.com'])) throw new Error(`browser configuration ${JSON.stringify(configuredBrowserHosts)}`);
+  pass('browser host allowlist keeps loopback defaults and exact opt-in hosts');
   const bounded = taskResultView(
     { id: 'task-bounded', status: 'completed', result: 'token=do-not-leak '.repeat(2000), updatedAt: 'now' },
     [{ seq: 1, type: 'agent.action.executed', payload: { action: { tool: 'file.read', status: 'executed', result: 'secret '.repeat(3000) } } }]
@@ -603,6 +614,7 @@ async function main() {
         HOST: '127.0.0.1',
         PORT: String(port),
         OPENBOT_DATA_DIR: dataDir,
+        OPENBOT_BROWSER_ALLOW_HOSTS: 'example.com',
         OPENBOT_TEST_AGENT_RESPONSES: JSON.stringify([
           JSON.stringify({ reply: 'The named bot completed the review.' }),
           JSON.stringify({ action: { tool: 'file.read', args: { path: 'notes.txt' } } }),
@@ -632,7 +644,7 @@ async function main() {
       if (health.status !== 200) throw new Error(`health status ${health.status} ${output}`); pass('health endpoint responds');
       const configResponse = await http('/api/config');
       const configBody = JSON.parse(configResponse.body);
-      if (configResponse.status !== 200 || configBody.localOnly !== true || configBody.remoteApiKey !== 'unset' || configBody.modelUrl !== 'http://127.0.0.1:11434') throw new Error(`config endpoint ${configResponse.status} ${configResponse.body}`);
+      if (configResponse.status !== 200 || configBody.localOnly !== true || configBody.remoteApiKey !== 'unset' || configBody.modelUrl !== 'http://127.0.0.1:11434' || JSON.stringify(configBody.browserAllowHosts) !== JSON.stringify(['example.com'])) throw new Error(`config endpoint ${configResponse.status} ${configResponse.body}`);
       pass('effective configuration endpoint is safe and read-only');
       const state = await http('/api/state');
       const parsed = JSON.parse(state.body);
@@ -990,6 +1002,12 @@ async function main() {
 
     const { createEngine } = await import(pathToFileURL(join(root, 'lib/engine.mjs')).href);
     const engine = createEngine({ store: first, actor: 'harness' });
+    const defaultExternalBrowser = await engine.act({ workspace: fileWs, tool: 'browser.fetch', args: { url: 'https://example.com', path: 'external.md' } });
+    if (defaultExternalBrowser.status !== 'denied') throw new Error(`default external browser access ${defaultExternalBrowser.status}`);
+    const configuredBrowserEngine = createEngine({ store: first, actor: 'harness', browserAllowHosts: ['example.com'] });
+    const configuredExternalBrowser = await configuredBrowserEngine.act({ workspace: fileWs, tool: 'browser.fetch', args: { url: 'https://example.com', path: 'external.md' } });
+    if (configuredExternalBrowser.status !== 'needs_approval' || !configuredExternalBrowser.approval?.id) throw new Error(`configured external browser access ${configuredExternalBrowser.status}`);
+    pass('external browser access is opt-in and remains approval-gated');
     const scopedTask = await first.createTask({ prompt: 'workspace binding', kind: 'plan', workspace: fileWs });
     let workspaceMismatchRejected = false;
     try { await engine.act({ taskId: scopedTask.task.id, workspace: shellWs, tool: 'file.read', args: { path: 'notes.txt' } }); } catch (error) { workspaceMismatchRejected = error.statusCode === 409; }
