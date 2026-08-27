@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.9 — 2026-08-27
+
+Added reusable skill update parity.
+
+- Update a local skill's name, description, or instructions with `skill update <id>`.
+- Support direct-local and shared-daemon updates through the existing bounded validation and redaction paths.
+- Preserve skill identity and bot/routine references while refining reusable guidance.
+- Expand release verification to cover local and daemon-routed skill updates.
+
 ## 0.4.8 — 2026-08-27
 
 Added named-bot profile update parity.

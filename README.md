@@ -11,6 +11,7 @@ OpenBot is a free, open-source, local-first bot that turns a task into bounded, 
 - Interrupted tasks can be resumed from the CLI, API, or dashboard after the daemon is reopened, retaining the same task identity and event history.
 - Explicit workspace-scoped local memory managed from the dashboard, API, or CLI; only matching memory reaches the agent.
 - Operator-owned local skills managed from the dashboard, API, or CLI; skills are explicit, bounded guidance and cannot grant tools or bypass approvals.
+- Local skill definitions can be edited from the CLI without losing their durable identity or existing bot/routine references.
 - Durable named local bots with a role, instructions, workspace, optional skill, and bounded conversation history managed from the dashboard, API, or CLI.
 - Named bot profiles can be edited from the CLI, including role, instructions, workspace, and selected skill, through either the local store or shared daemon.
 - Local routines managed from the dashboard, API, or CLI; schedules are explicit, runs are durable, and Run now uses the same approval-safe agent loop.
@@ -37,6 +38,7 @@ node cli/openbot.mjs bot update <bot-id> --role "Review and summarize local work
 node cli/openbot.mjs bot list --json
 node cli/openbot.mjs resume <task-id> --json
 node cli/openbot.mjs skill add --name release-check --instructions "Review tests and report release risks." --json
+node cli/openbot.mjs skill update <skill-id> --instructions "Review tests, report risks, and cite evidence." --json
 node cli/openbot.mjs routine add --title "Workspace review" --schedule "daily 09:30" --workspace /path/to/project "Review the workspace and report risks." --json
 node cli/openbot.mjs start --detach --json
 node cli/openbot.mjs desktop --json

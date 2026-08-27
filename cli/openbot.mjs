@@ -15,7 +15,7 @@ import { installService, serviceInfo, uninstallService } from '../lib/service.mj
 import {
   daemonBot, daemonBots, daemonChat, daemonControlTask, daemonCreateBot, daemonCreateMemory, daemonCreateRoutine, daemonCreateSkill, daemonUpdateBot,
   daemonDecideApproval, daemonDeleteBot, daemonDeleteMemory, daemonDeleteSkill, daemonList, daemonLogs, daemonMemories, daemonResume,
-  daemonRoutine, daemonRoutines, daemonRunRoutine, daemonShow, daemonSkill, daemonSkills, daemonState, daemonUpdateRoutine
+  daemonRoutine, daemonRoutines, daemonRunRoutine, daemonShow, daemonSkill, daemonSkills, daemonState, daemonUpdateRoutine, daemonUpdateSkill
 } from '../lib/client.mjs';
 
 const USAGE = `OpenBot CLI (local agent)
@@ -55,6 +55,7 @@ Commands:
   bot delete <id>    Delete a named local bot
   skill list         List reusable local skills
   skill add          Save an operator-approved local skill
+  skill update <id>  Update a reusable local skill
   skill delete       Delete a local skill
   routine list       List local scheduled routines
   routine add        Create a local scheduled routine
@@ -519,13 +520,24 @@ async function main() {
       print(created, true);
       return;
     }
+    if (subcommand === 'update') {
+      const id = positional[2];
+      if (!id) fail(Object.assign(new Error('Skill id is required.'), { exitCode: 1 }));
+      const patch = {};
+      for (const field of ['name', 'description', 'instructions']) {
+        if (flags[field] !== undefined) patch[field] = flags[field];
+      }
+      if (!Object.keys(patch).length) fail(Object.assign(new Error('Provide at least one skill field to update.'), { exitCode: 1 }));
+      print(flags.daemon ? await daemonUpdateSkill(config, id, patch) : await store.updateSkill(id, patch), true);
+      return;
+    }
     if (subcommand === 'delete') {
       const id = positional[2];
       if (!id) fail(Object.assign(new Error('Skill id is required.'), { exitCode: 1 }));
       print(flags.daemon ? await daemonDeleteSkill(config, id) : await store.deleteSkill(id), true);
       return;
     }
-    fail(Object.assign(new Error('Use skill list, skill add, or skill delete.'), { exitCode: 1 }));
+    fail(Object.assign(new Error('Use skill list, skill add, skill update, or skill delete.'), { exitCode: 1 }));
   }
 
   if (command === 'routine') {

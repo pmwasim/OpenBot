@@ -231,6 +231,10 @@ const app = http.createServer(async (req, res) => {
       const skill = await store.getSkill(id);
       return skill ? json(res, 200, { skill }) : json(res, 404, { error: 'Skill not found.' });
     }
+    if (url.pathname.startsWith('/api/skills/') && req.method === 'PATCH') {
+      const id = decodeURIComponent(url.pathname.slice('/api/skills/'.length));
+      return json(res, 200, await store.updateSkill(id, await body(req)));
+    }
     if (url.pathname.startsWith('/api/skills/') && req.method === 'DELETE') {
       const id = decodeURIComponent(url.pathname.slice('/api/skills/'.length));
       return json(res, 200, await store.deleteSkill(id));

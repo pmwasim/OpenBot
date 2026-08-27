@@ -393,7 +393,11 @@ async function main() {
     if (cliMemoryDelete.code !== 0) throw new Error(`CLI memory delete: ${cliMemoryDelete.output}`);
     pass('CLI memory add/list/delete manages operator-owned facts');
     const cliSkillAdd = await runNode(['cli/openbot.mjs', 'skill', 'add', '--name', 'summarize', '--description', 'Summarize safely', '--instructions', 'Read relevant files and summarize findings.', '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
-    if (cliSkillAdd.code !== 0) throw new Error(`CLI skill add: ${cliSkillAdd.output}`);
+    const cliSkillAddJson = parseCliJson(cliSkillAdd.output);
+    if (cliSkillAdd.code !== 0 || !cliSkillAddJson.skill?.id) throw new Error(`CLI skill add: ${cliSkillAdd.output}`);
+    const cliSkillUpdate = await runNode(['cli/openbot.mjs', 'skill', 'update', cliSkillAddJson.skill.id, '--description', 'Summarize safely and clearly', '--instructions', 'Read relevant files, summarize findings, and cite evidence.', '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
+    const cliSkillUpdateJson = parseCliJson(cliSkillUpdate.output);
+    if (cliSkillUpdate.code !== 0 || cliSkillUpdateJson.skill?.description !== 'Summarize safely and clearly') throw new Error(`CLI skill update: ${cliSkillUpdate.output}`);
     const cliSkillList = await runNode(['cli/openbot.mjs', 'skill', 'list', '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
     const cliSkillListJson = parseCliJson(cliSkillList.output);
     if (cliSkillList.code !== 0 || !cliSkillListJson.skills?.some((skill) => skill.name === 'summarize')) throw new Error(`CLI skill list: ${cliSkillList.output}`);
@@ -644,6 +648,9 @@ async function main() {
       const daemonSkillList = await runNode(['cli/openbot.mjs', 'skill', 'list', '--daemon', '--json'], isolatedDaemonEnv);
       const daemonSkillListJson = parseCliJson(daemonSkillList.output);
       if (daemonSkillList.code !== 0 || !daemonSkillListJson.skills?.some((item) => item.id === daemonSkillAddJson.skill.id)) throw new Error(`daemon skill list: ${daemonSkillList.output}`);
+      const daemonSkillUpdate = await runNode(['cli/openbot.mjs', 'skill', 'update', daemonSkillAddJson.skill.id, '--daemon', '--description', 'Shared daemon guidance updated', '--instructions', 'Use the shared daemon safely and report evidence.', '--json'], isolatedDaemonEnv);
+      const daemonSkillUpdateJson = parseCliJson(daemonSkillUpdate.output);
+      if (daemonSkillUpdate.code !== 0 || daemonSkillUpdateJson.skill?.description !== 'Shared daemon guidance updated') throw new Error(`daemon skill update: ${daemonSkillUpdate.output}`);
       const daemonSkillDelete = await runNode(['cli/openbot.mjs', 'skill', 'delete', daemonSkillAddJson.skill.id, '--daemon', '--json'], isolatedDaemonEnv);
       if (daemonSkillDelete.code !== 0) throw new Error(`daemon skill delete: ${daemonSkillDelete.output}`);
       const daemonBotAdd = await runNode(['cli/openbot.mjs', 'bot', 'add', '--daemon', '--name', 'Daemon steward', '--role', 'Review shared work', '--instructions', 'Review the shared task safely.', '--workspace', agentWs, '--json'], isolatedDaemonEnv);
