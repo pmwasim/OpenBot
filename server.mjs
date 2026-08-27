@@ -429,11 +429,11 @@ const app = http.createServer(async (req, res) => {
     }
     if (url.pathname === '/api/health' && req.method === 'GET') {
       let localTags = { ok: false, models: [] };
-      try { localTags = await localModel.tags(); } catch {}
+      try { localTags = await localModel.tags({ signal: AbortSignal.timeout(2000) }); } catch {}
       const providerList = [{ id: 'local-model', label: 'Local model', local: true, enabled: true, online: localTags.ok, models: localTags.models || [] }];
       if (!providers.localOnly && providers.remoteCompatible.enabled) {
         let remoteTags = { ok: false, models: [] };
-        try { remoteTags = await providers.remoteCompatible.tags(); } catch {}
+        try { remoteTags = await providers.remoteCompatible.tags({ signal: AbortSignal.timeout(2000) }); } catch {}
         providerList.push({ id: 'remote-compatible', label: 'Compatible remote provider', local: false, enabled: true, online: remoteTags.ok, models: remoteTags.models || [] });
       }
       return json(res, 200, { online: localTags.ok, models: localTags.models || [], providers: providerList });

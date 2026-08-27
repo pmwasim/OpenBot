@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.40 — 2026-08-27
+
+Hardened production persistence, browser limits, and health checks.
+
+- Enforce owner-only permissions for the local data directory and durable event log.
+- Stream browser responses and reject bodies over 1 MB before unbounded buffering.
+- Bound provider health probes to two seconds so liveness checks do not wait on a slow model runtime.
+- Add Node 20 engine metadata and a GitHub Actions release verification workflow.
+
 ## 0.4.39 — 2026-08-27
 
 Improved dashboard recovery and release freshness.

@@ -118,9 +118,12 @@ async function main() {
   const skillPackSource = await readFile(join(root, 'lib/skill-packs.mjs'), 'utf8');
   const storeSource = await readFile(join(root, 'lib/store.mjs'), 'utf8');
   const policySource = await readFile(join(root, 'lib/policy.mjs'), 'utf8');
+  const providerSource = await readFile(join(root, 'lib/provider.mjs'), 'utf8');
   const browserSource = await readFile(join(root, 'lib/workers/browser.mjs'), 'utf8');
   const engineSource = await readFile(join(root, 'lib/engine.mjs'), 'utf8');
   const connectorSource = await readFile(join(root, 'lib/connectors.mjs'), 'utf8');
+  if (!serverSource.includes("AbortSignal.timeout(2000)") || !providerSource.includes('tags({ signal } = {})')) throw new Error('health probes are not bounded');
+  pass('health probes are bounded for production liveness checks');
   if (!storeSource.includes("chmod(dataDir, 0o700)") || !storeSource.includes("mode: 0o600") || !storeSource.includes("chmod(temporary, 0o600)")) throw new Error('event store does not enforce owner-only permissions');
   pass('event store enforces owner-only permissions');
   if (browserSource.includes('const html = await response.text()') || !browserSource.includes('boundedBody(response, 1_000_000)') || !browserSource.includes('response.body.getReader()')) throw new Error('browser fetch does not enforce a streaming response limit');

@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check syntax
+        run: |
+          node --check server.mjs
+          while IFS= read -r file; do node --check "$file"; done < <(find . -type f \( -name '*.mjs' -o -name '*.js' \) -not -path './.git/*' -not -path './node_modules/*' -print)
+      - name: Run release harness
+        env:
+          OPENBOT_ISOLATION: cwd
+        run: npm run check
