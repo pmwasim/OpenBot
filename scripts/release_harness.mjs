@@ -26,6 +26,20 @@ async function httpOn(targetPort, path, options = {}) {
   });
 }
 
+function streamOn(targetPort, path) {
+  return new Promise((resolve, reject) => {
+    const req = request(`http://127.0.0.1:${targetPort}${path}`, { headers: { accept: 'text/event-stream' } }, (res) => {
+      let data = '';
+      const timer = setTimeout(() => { req.destroy(); reject(new Error('event stream timed out')); }, 5000);
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => { clearTimeout(timer); resolve({ status: res.statusCode, headers: res.headers, body: data }); });
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
 function runNode(args, env, { timeoutMs = 8000 } = {}) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, args, { cwd: root, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -104,6 +118,8 @@ async function main() {
   pass('dashboard exposes asynchronous durable task execution');
   if (!cliSource.includes('--follow') || !cliSource.includes('daemonRunTask') || !clientSource.includes('daemonCreateTask') || !clientSource.includes('daemonTaskEvents')) throw new Error('CLI does not expose durable task follow mode');
   pass('CLI exposes durable task follow mode');
+  if (!appSource.includes('EventSource') || !appSource.includes('/events/stream')) throw new Error('dashboard does not expose live task event streaming');
+  pass('dashboard exposes live task event streaming');
   const publicSurfaceFiles = ['README.md', 'PRD.md', 'SECURITY.md', 'CHANGELOG.md', 'cli/openbot.mjs', 'server.mjs', 'lib/config.mjs', 'lib/provider.mjs', 'lib/daemon.mjs', 'lib/client.mjs', 'lib/agent.mjs', 'lib/store.mjs', 'public/index.html', 'public/app.js', 'public/styles.css'];
   const forbiddenPublicBrand = /\b(?:Grok|Ollama|OpenAI|Anthropic|Gemini|Claude|Cursor|Groq)\b|x\.ai/i;
   for (const file of publicSurfaceFiles) {
@@ -568,6 +584,9 @@ async function main() {
       }
       if (asyncAfter.task?.status !== 'completed' || asyncAfter.task.result !== 'The asynchronous task completed.') throw new Error(`async task result ${JSON.stringify(asyncAfter)}`);
       pass('asynchronous task execution returns immediately and persists the final result');
+      const asyncStream = await streamOn(port, `/api/tasks/${encodeURIComponent(asyncCreateBody.task.id)}/events/stream?after=0`);
+      if (asyncStream.status !== 200 || !String(asyncStream.headers['content-type']).includes('text/event-stream') || !asyncStream.body.includes('event: ready') || !asyncStream.body.includes('event: task') || !asyncStream.body.includes('The asynchronous task completed.')) throw new Error(`async task stream ${asyncStream.status} ${asyncStream.body}`);
+      pass('task event stream replays durable activity and closes at completion');
       const inFlightRequest = http('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'Cancel this waiting task.', workspace: agentWs, model: 'fixture-slow' }) });
       let inFlightTask = null;
       for (let attempt = 0; attempt < 30; attempt += 1) {

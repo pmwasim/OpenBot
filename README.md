@@ -26,6 +26,7 @@ OpenBot is a free, open-source, local-first bot that turns a task into bounded, 
 - Asynchronous dashboard execution: the dashboard creates a durable task, returns immediately, watches bounded activity, and renders the persisted final result while pause, resume, cancel, and audit controls remain available.
 - Named-bot tasks started asynchronously retain the same bounded conversation history as direct bot chat.
 - CLI durable follow mode: `run --daemon --follow` starts a durable task and follows its bounded event history until completion, approval, pause, cancellation, or failure; `run` without `--follow` remains create-only.
+- Live dashboard activity: active tasks use a bounded server-sent event stream at `/api/tasks/:id/events/stream`; clients fall back to offset polling when streaming is unavailable, and final task states close the stream.
 - Daemon-routed CLI task management: `list`, `show`, `logs`, `approve`, and `reject` can inspect or change server-owned task state without a second local store.
 - Daemon-routed task control: `pause`, `resume`, and `cancel` can control server-owned work while preserving durable status transitions and the bounded agent loop.
 - Daemon-routed administration: `memory`, `skill`, `bot`, and `routine` commands can manage server-owned state without a second local store; named-bot chat and routine Run now use the shared daemon loop.
@@ -80,7 +81,7 @@ Use `node cli/openbot.mjs desktop` when you want a one-command graphical entry p
 
 Use `node cli/openbot.mjs service install --dry-run --json` to preview the user-level service definition. The non-dry-run command writes only to the current user's service directory and asks the operating system's user service manager to enable the existing daemon; `service uninstall` reverses that setup. The service commands support macOS and Linux. On other platforms, use `desktop` or `start --detach`.
 
-The dashboard polls `/api/tasks/:id/events?after=<offset>` every 1.5 seconds only while work is active. The endpoint returns the task, newly appended events, and the next offset, so lightweight clients can show progress without opening a permanent connection. Events remain subject to the same redaction and local-access boundaries as task audits.
+The dashboard opens `/api/tasks/:id/events/stream?after=<offset>` while work is active and receives durable, redacted task events without repeated polling. The stream is bounded by task completion or a server time limit; clients that cannot use server-sent events fall back to `/api/tasks/:id/events?after=<offset>` polling. Events remain subject to the same redaction and local-access boundaries as task audits.
 
 ## Release verification
 

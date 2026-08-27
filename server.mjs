@@ -195,6 +195,90 @@ function json(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+const terminalTaskStatuses = new Set(['completed', 'failed', 'cancelled']);
+
+function writeSse(res, event, data) {
+  if (res.writableEnded) return false;
+  res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  return true;
+}
+
+async function streamTaskEvents(req, res, task, afterSeq) {
+  let closed = false;
+  let ready = false;
+  let lastSeq = afterSeq;
+  let queuedSeq = afterSeq;
+  let pending = [];
+  let delivery = Promise.resolve();
+  let unsubscribe = () => {};
+  let heartbeat;
+  let expiry;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    unsubscribe();
+    clearInterval(heartbeat);
+    clearTimeout(expiry);
+    if (!res.writableEnded) res.end();
+  };
+  const enqueue = (event) => {
+    const sequence = Number(event?.seq);
+    if (!Number.isSafeInteger(sequence) || sequence <= lastSeq || sequence <= queuedSeq) return;
+    queuedSeq = sequence;
+    delivery = delivery.then(async () => {
+      if (closed) return;
+      const current = await store.getTask(task.id);
+      if (!current) return;
+      lastSeq = sequence;
+      writeSse(res, 'task', { task: current, event });
+      if (event.type === 'task.status' && terminalTaskStatuses.has(String(event.payload?.status || ''))) close();
+    }).catch(close);
+  };
+  const onEvent = (event) => {
+    if (ready) enqueue(event);
+    else pending.push(event);
+  };
+
+  res.writeHead(200, {
+    'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-cache, no-store',
+    connection: 'keep-alive',
+    'x-content-type-options': 'nosniff'
+  });
+  res.write('retry: 1000\n\n');
+  writeSse(res, 'ready', { task, after: afterSeq });
+  unsubscribe = store.subscribeTaskEvents(task.id, onEvent);
+  req.once('close', close);
+  res.once('close', close);
+  heartbeat = setInterval(() => { if (!closed) res.write(': keep-alive\n\n'); }, 15_000);
+  heartbeat.unref?.();
+  expiry = setTimeout(() => {
+    if (!closed) {
+      writeSse(res, 'stream.end', { reason: 'time_limit' });
+      close();
+    }
+  }, 15 * 60_000);
+
+  try {
+    const backlog = await store.listEvents({ taskId: task.id, afterSeq });
+    for (const event of backlog) enqueue(event);
+    await delivery;
+    ready = true;
+    for (const event of pending) enqueue(event);
+    pending = [];
+    await delivery;
+    if (!closed) {
+      const current = await store.getTask(task.id);
+      if (terminalTaskStatuses.has(String(current?.status || ''))) {
+        writeSse(res, 'stream.end', { reason: 'terminal', task: current });
+        close();
+      }
+    }
+  } catch {
+    close();
+  }
+}
+
 async function body(req) {
   let text = '';
   let size = 0;
@@ -306,6 +390,15 @@ const app = http.createServer(async (req, res) => {
     if (url.pathname.startsWith('/api/skills/') && req.method === 'DELETE') {
       const id = decodeURIComponent(url.pathname.slice('/api/skills/'.length));
       return json(res, 200, await store.deleteSkill(id));
+    }
+    if (url.pathname.startsWith('/api/tasks/') && url.pathname.endsWith('/events/stream') && req.method === 'GET') {
+      const taskId = decodeURIComponent(url.pathname.slice('/api/tasks/'.length, -'/events/stream'.length));
+      const task = await store.getTask(taskId);
+      if (!task) return json(res, 404, { error: 'Task not found' });
+      const afterRaw = url.searchParams.get('after');
+      const afterSeq = afterRaw == null || afterRaw === '' ? 0 : Number(afterRaw);
+      if (!Number.isSafeInteger(afterSeq) || afterSeq < 0) return json(res, 400, { error: 'The event offset must be a non-negative integer.' });
+      return streamTaskEvents(req, res, task, afterSeq);
     }
     if (url.pathname.startsWith('/api/tasks/') && req.method === 'GET') {
       const rest = url.pathname.slice('/api/tasks/'.length);

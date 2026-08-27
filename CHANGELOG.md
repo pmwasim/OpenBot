@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.18 — 2026-08-27
+
+Added low-overhead live task activity streaming.
+
+- Expose `/api/tasks/:id/events/stream` as a bounded authenticated server-sent event stream backed by durable task events.
+- Replay events after the requested offset, deliver new events as they are appended, and close at final task state or the server time limit.
+- Use the stream in the dashboard with an automatic offset-polling fallback for older or incompatible clients.
+- Keep task results redacted and preserve existing approval, workspace, cancellation, and audit boundaries.
+- Expand release verification to cover durable stream replay and completion behavior.
+
 ## 0.4.17 — 2026-08-27
 
 Added lightweight CLI execution and follow mode.

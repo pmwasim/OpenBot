@@ -11,7 +11,7 @@ OpenBot is a free and open-source, self-hostable, local-first autonomous agent p
 
 The current implementation has a bounded local-model agent loop that can execute safe file, shell-diagnostic, and browser-fetch actions through the audited engine, while stopping for approval before consequential work. This PRD defines the path from that first real-work slice to a complete product.
 
-Current product slice: the dashboard and opt-in CLI follow mode submit durable tasks asynchronously, expose bounded activity and task controls while work runs, persist the final reply, and retain named-bot conversation history for those runs.
+Current product slice: the dashboard and opt-in CLI follow mode submit durable tasks asynchronously, expose bounded live activity and task controls while work runs, persist the final reply, and retain named-bot conversation history for those runs.
 
 ## 2. Evidence and competitive context
 
@@ -102,7 +102,7 @@ The first meaningful “bot, not control panel” milestone is implemented on th
 - Operators can create, list, pause, enable, run, and audit local routines. The in-process scheduler uses one lightweight timer, caps routines at 50 and run history at 20 per routine, and never auto-approves consequential actions.
 - Operators can start the local daemon in the foreground or detached background mode, inspect process/model status, prevent duplicate starts, and stop it cleanly. The lifecycle uses only stock Node.js facilities, stores a 0600 process record, and writes a local runtime log under the data directory.
 - CLI chat can opt into the shared daemon HTTP path, so server-owned task state, approvals, audit history, and dashboard state are available without running a second agent controller process. The direct local CLI path remains available for offline administration and compatibility.
-- Operators and lightweight clients can read task activity incrementally through `/api/tasks/:id/events?after=<offset>`. The dashboard uses bounded polling only for active work and shows the latest durable event without opening a permanent stream.
+- Operators and lightweight clients can read task activity incrementally through `/api/tasks/:id/events?after=<offset>`, or use the bounded `/api/tasks/:id/events/stream?after=<offset>` server-sent event stream. The dashboard prefers the live stream and falls back to offset polling when streaming is unavailable.
 - CLI operators can route task listing, inspection, event logs, and approval decisions through the shared daemon with `--daemon`, keeping one server-owned task and approval state instead of opening a second local store.
 - CLI operators can route pause, resume, and cancel through the shared daemon with `--daemon`; resume uses the server's existing bounded agent loop and preserves task identity.
 - CLI operators can route memory, skill, bot, and routine administration through the shared daemon with `--daemon`; named-bot chat and routine Run now use the same server-owned bounded agent loop.
@@ -171,7 +171,7 @@ Provide a Linux desktop app that connects to the daemon over a local authenticat
 Acceptance criteria:
 
 - User can create, inspect, approve, pause, cancel, and resume tasks.
-- UI shows live event stream, proposed actions, changed files, errors, and final result.
+- UI shows live task events, proposed actions, changed files, errors, and final result through the bounded event stream or polling fallback.
 - Closing and reopening the app does not lose task history.
 
 #### P0.4 Sandboxed execution workers

@@ -13,9 +13,11 @@ let modelName = '';
 let taskEventOffsets = new Map();
 let taskActivityNodes = new Map();
 let taskMessages = new Map();
+let taskEventStreams = new Map();
 let watchedTasks = [];
 let taskActivityTimer = null;
 let taskActivityBusy = false;
+let taskStreamFallback = false;
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -111,14 +113,61 @@ async function refreshTaskActivity() {
   }
 }
 
+function closeTaskEventStream(taskId) {
+  const stream = taskEventStreams.get(taskId);
+  if (!stream) return;
+  stream.close();
+  taskEventStreams.delete(taskId);
+}
+
+function finalTaskStatus(status) {
+  return ['completed', 'failed', 'cancelled'].includes(String(status || '').toLowerCase());
+}
+
+function openTaskEventStream(taskItem) {
+  if (typeof EventSource !== 'function' || taskEventStreams.has(taskItem.id)) return;
+  const offset = taskEventOffsets.get(taskItem.id) || 0;
+  const stream = new EventSource(`/api/tasks/${encodeURIComponent(taskItem.id)}/events/stream?after=${offset}`);
+  taskEventStreams.set(taskItem.id, stream);
+  stream.addEventListener('task', (event) => {
+    let data;
+    try { data = JSON.parse(event.data); } catch { return; }
+    const nextEvent = data.event;
+    const nextOffset = Number(nextEvent?.seq);
+    if (Number.isSafeInteger(nextOffset) && nextOffset > (taskEventOffsets.get(taskItem.id) || 0)) taskEventOffsets.set(taskItem.id, nextOffset);
+    const node = taskActivityNodes.get(taskItem.id);
+    if (node && nextEvent) node.textContent = `Activity: ${describeTaskEvent(nextEvent)}`;
+    const current = data.task || taskItem;
+    updateTaskMessage(current);
+    if (finalTaskStatus(current.status)) {
+      closeTaskEventStream(taskItem.id);
+      void load();
+    }
+  });
+  stream.addEventListener('stream.end', () => {
+    closeTaskEventStream(taskItem.id);
+    taskStreamFallback = true;
+    void refreshTaskActivity();
+  });
+  stream.onerror = () => {
+    closeTaskEventStream(taskItem.id);
+    taskStreamFallback = true;
+    void refreshTaskActivity();
+  };
+}
+
 function watchTaskActivity(tasks) {
   watchedTasks = tasks;
   if (taskActivityTimer) {
     clearInterval(taskActivityTimer);
     taskActivityTimer = null;
   }
+  const active = tasks.filter((item) => ['pending', 'running', 'waiting_approval', 'paused'].includes(String(item.status || '').toLowerCase()));
+  const activeIds = new Set(active.map((item) => item.id));
+  for (const taskId of taskEventStreams.keys()) if (!activeIds.has(taskId)) closeTaskEventStream(taskId);
+  if (!taskStreamFallback && typeof EventSource === 'function') for (const taskItem of active) openTaskEventStream(taskItem);
   void refreshTaskActivity();
-  if (tasks.some((item) => ['pending', 'running', 'waiting_approval'].includes(String(item.status || '').toLowerCase()))) {
+  if (taskStreamFallback || typeof EventSource !== 'function') {
     taskActivityTimer = setInterval(() => { void refreshTaskActivity(); }, 1500);
   }
 }
