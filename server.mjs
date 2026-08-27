@@ -51,6 +51,38 @@ const agentProvider = process.env.OPENBOT_TEST_AGENT_RESPONSES
   ? fixtureAgentProvider(process.env.OPENBOT_TEST_AGENT_RESPONSES)
   : ollama;
 
+async function resolveAgentModel(requested) {
+  if (process.env.OPENBOT_TEST_AGENT_RESPONSES) return requested || 'fixture';
+  let tags;
+  try { tags = await ollama.tags(); }
+  catch { throw Object.assign(new Error('Ollama is not available. Start Ollama, then download a local model.'), { statusCode: 503 }); }
+  if (!tags.ok) throw Object.assign(new Error('Ollama is not available. Start Ollama, then download a local model.'), { statusCode: 503 });
+  const selected = requested || tags.models[0];
+  if (!selected) throw Object.assign(new Error('Ollama has no local model yet.'), { statusCode: 503 });
+  if (!tags.models.includes(selected)) throw Object.assign(new Error('Requested model is not installed locally.'), { statusCode: 400 });
+  return selected;
+}
+
+async function runAgentTask({ taskId, prompt, workspace, model, maxTurns, approvalId }) {
+  const controller = createAgentController({
+    store,
+    provider: agentProvider,
+    engine: createEngine({ store, actor: 'agent' }),
+    actor: 'agent',
+    maxTurns: Math.min(Number(maxTurns) > 0 ? Number(maxTurns) : config.agentMaxTurns, config.agentMaxTurns),
+    maxActions: config.agentMaxActions,
+    maxContextChars: config.agentContextChars
+  });
+  return controller.run({ taskId, prompt, workspace, model, approvalId });
+}
+
+function agentHttpStatus(result) {
+  return result.status === 'completed' || result.status === 'waiting_approval' ? 200
+    : result.status === 'denied' ? 403
+    : result.status === 'failed' ? 502
+    : 422;
+}
+
 function json(res, status, body) {
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
@@ -112,36 +144,23 @@ const app = http.createServer(async (req, res) => {
       const approval = await store.decideApproval(id, decision);
       return json(res, 200, { approval });
     }
+    if (url.pathname.startsWith('/api/tasks/') && url.pathname.endsWith('/resume') && req.method === 'POST') {
+      const taskId = url.pathname.slice('/api/tasks/'.length, -'/resume'.length);
+      const task = await store.getTask(taskId);
+      if (!task) return json(res, 404, { error: 'Task not found' });
+      if (!['pending', 'waiting_approval'].includes(task.status)) return json(res, 409, { error: `Task is not resumable from status "${task.status}".` });
+      const payload = await body(req);
+      const selected = await resolveAgentModel(payload.model);
+      const result = await runAgentTask({ taskId, prompt: task.prompt, workspace: task.workspace, model: selected, maxTurns: payload.maxTurns, approvalId: payload.approvalId });
+      return json(res, agentHttpStatus(result), { model: selected, ...result });
+    }
     if (url.pathname === '/api/chat' && req.method === 'POST') {
       const { message, model, workspace, taskId, maxTurns } = await body(req);
       if (typeof message !== 'string' || !message.trim()) return json(res, 400, { error: 'A task is required.' });
       if (typeof workspace !== 'string' || !workspace.trim() || workspace === 'local') return json(res, 400, { error: 'An explicit workspace path is required for agent work.' });
-      let selected = model;
-      if (!process.env.OPENBOT_TEST_AGENT_RESPONSES) {
-        let tags;
-        try { tags = await ollama.tags(); }
-        catch { return json(res, 503, { error: 'Ollama is not available. Start Ollama, then download a local model.' }); }
-        if (!tags.ok) return json(res, 503, { error: 'Ollama is not available. Start Ollama, then download a local model.' });
-        const installed = tags.models || [];
-        selected = selected || installed[0];
-        if (!selected) return json(res, 503, { error: 'Ollama has no local model yet.' });
-        if (!installed.includes(selected)) return json(res, 400, { error: 'Requested model is not installed locally.' });
-      }
-      const controller = createAgentController({
-        store,
-        provider: agentProvider,
-        engine: createEngine({ store, actor: 'agent' }),
-        actor: 'agent',
-        maxTurns: Math.min(Number(maxTurns) > 0 ? Number(maxTurns) : config.agentMaxTurns, config.agentMaxTurns),
-        maxActions: config.agentMaxActions,
-        maxContextChars: config.agentContextChars
-      });
-      const result = await controller.run({ taskId, prompt: message, workspace, model: selected });
-      const status = result.status === 'completed' || result.status === 'waiting_approval' ? 200
-        : result.status === 'denied' ? 403
-        : result.status === 'failed' ? 502
-        : 422;
-      return json(res, status, { model: selected || 'fixture', ...result });
+      const selected = await resolveAgentModel(model);
+      const result = await runAgentTask({ taskId, prompt: message, workspace, model: selected, maxTurns });
+      return json(res, agentHttpStatus(result), { model: selected, ...result });
     }
     const file = url.pathname === '/' ? join(publicDir, 'index.html') : join(publicDir, url.pathname);
     if (!file.startsWith(publicDir) || !existsSync(file)) return json(res, 404, { error: 'Not found' });

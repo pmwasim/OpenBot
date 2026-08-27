@@ -74,8 +74,8 @@ function renderState(state) {
     if (approval.status === 'waiting') {
       const approve = element('button', 'approve', 'Approve');
       const reject = element('button', 'reject', 'Reject');
-      approve.addEventListener('click', () => decide(approval.id, 'approved'));
-      reject.addEventListener('click', () => decide(approval.id, 'rejected'));
+      approve.addEventListener('click', () => decide(approval, 'approved'));
+      reject.addEventListener('click', () => decide(approval, 'rejected'));
       controls.append(approve, reject);
     } else controls.append(element('small', '', approval.status || 'closed'));
     card.append(controls);
@@ -92,12 +92,19 @@ function renderState(state) {
   }
 }
 
-async function decide(id, decision) {
-  await fetch('/api/approval', {
+async function decide(approval, decision) {
+  const response = await fetch('/api/approval', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ id, decision })
+    body: JSON.stringify({ id: approval.id, decision })
   });
+  if (response.ok && decision === 'approved' && approval.taskId) {
+    await fetch(`/api/tasks/${encodeURIComponent(approval.taskId)}/resume`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ approvalId: approval.id, model: modelName || undefined })
+    });
+  }
   await load();
 }
 

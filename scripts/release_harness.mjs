@@ -80,7 +80,7 @@ async function main() {
   const indexSource = await readFile(join(root, 'public/index.html'), 'utf8');
   const appSource = await readFile(join(root, 'public/app.js'), 'utf8');
   if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"')) throw new Error('dashboard is missing an explicit workspace input');
-  if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit')) throw new Error('dashboard does not expose agent actions and audit links');
+  if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/resume')) throw new Error('dashboard does not expose agent actions, resume, and audit links');
   if (appSource.includes('e.innerHTML=`')) throw new Error('dashboard renders state with unsafe innerHTML');
   pass('dashboard exposes workspace, action cards, and audit links safely');
 
@@ -193,12 +193,18 @@ async function main() {
   pass('agent loop enforces a bounded turn limit');
 
   const dataDir = await mkdtemp(join(tmpdir(), 'openbot-harness-'));
+  const freshDataDir = await mkdtemp(join(tmpdir(), 'openbot-fresh-'));
   const fileWs = await mkdtemp(join(tmpdir(), 'openbot-file-'));
   const shellWs = await mkdtemp(join(tmpdir(), 'openbot-shell-'));
   const browserWs = await mkdtemp(join(tmpdir(), 'openbot-browser-'));
   const agentWs = await mkdtemp(join(tmpdir(), 'openbot-agent-'));
   const { openStore } = await import(pathToFileURL(join(root, 'lib/store.mjs')).href);
   try {
+    const freshStore = await openStore({ dataDir: freshDataDir });
+    const freshState = await freshStore.getState();
+    if (freshState.approvals.length || freshState.routines.length) throw new Error('fresh store contains synthetic approvals or routines');
+    pass('fresh store starts without synthetic user work');
+
     await writeFile(join(dataDir, 'state.json'), JSON.stringify({
       approvals: [{ id: 'legacy-1', title: 'Legacy approval', detail: 'migrated from state.json', status: 'waiting' }],
       routines: [{ id: 'legacy-routine', title: 'Legacy routine', schedule: 'daily', enabled: true }]
@@ -236,6 +242,8 @@ async function main() {
           JSON.stringify({ action: { tool: 'file.read', args: { path: 'notes.txt' } } }),
           JSON.stringify({ reply: 'The notes are ready.' }),
           JSON.stringify({ action: { tool: 'file.write', args: { path: 'notes.txt', contents: 'changed by agent\n' } } }),
+          JSON.stringify({ action: { tool: 'file.write', args: { path: 'notes.txt', contents: 'changed by agent\n' } } }),
+          JSON.stringify({ reply: 'The approved change is complete.' }),
           'not-json'
         ])
       },
@@ -264,6 +272,15 @@ async function main() {
       if (agentWrite.status !== 200 || agentWriteBody.status !== 'waiting_approval' || !agentWriteBody.approvals?.length) throw new Error(`agent write approval ${agentWrite.status} ${agentWrite.body}`);
       if ((await readFile(join(agentWs, 'notes.txt'), 'utf8')) !== 'agent fixture\n') throw new Error('agent wrote before approval');
       pass('agent chat stops consequential work for explicit approval');
+      const approvalId = agentWriteBody.approvals[0].id;
+      const approved = await http('/api/approval', { method: 'POST', body: JSON.stringify({ id: approvalId, decision: 'approved' }) });
+      if (approved.status !== 200) throw new Error(`approval decision ${approved.status} ${approved.body}`);
+      const resumed = await http(`/api/tasks/${encodeURIComponent(agentWriteBody.taskId)}/resume`, { method: 'POST', body: JSON.stringify({ approvalId, model: 'fixture' }) });
+      const resumedBody = JSON.parse(resumed.body);
+      if (resumed.status !== 200 || resumedBody.status !== 'completed' || (await readFile(join(agentWs, 'notes.txt'), 'utf8')) !== 'changed by agent\n') {
+        throw new Error(`agent resume ${resumed.status} ${resumed.body}`);
+      }
+      pass('approved agent work resumes the same task and continues to completion');
       const agentMalformed = await http('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'Keep going.', workspace: agentWs, model: 'fixture' }) });
       const agentMalformedBody = JSON.parse(agentMalformed.body);
       if (agentMalformed.status !== 502 || agentMalformedBody.status !== 'failed' || !String(agentMalformedBody.error).includes('contract')) throw new Error(`agent malformed ${agentMalformed.status} ${agentMalformed.body}`);
@@ -504,6 +521,7 @@ async function main() {
     pass('consequential actions have actor/tool/args/result/timestamp events');
   } finally {
     await rm(dataDir, { recursive: true, force: true }).catch(() => {});
+    await rm(freshDataDir, { recursive: true, force: true }).catch(() => {});
     await rm(fileWs, { recursive: true, force: true }).catch(() => {});
     await rm(shellWs, { recursive: true, force: true }).catch(() => {});
     await rm(browserWs, { recursive: true, force: true }).catch(() => {});
