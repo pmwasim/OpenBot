@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.36 — 2026-08-27
+
+Made queued daemon work restart-recoverable.
+
+- Persist task queue admission state and recover tasks that were waiting before a daemon restart.
+- Leave already-admitted work for explicit resume to avoid silently repeating side effects, while retaining bounded concurrency and backlog limits.
+- Preserve local-first operation, zero mandatory spend, old-laptop portability, and brand-neutral public surfaces.
+
 ## 0.4.35 — 2026-08-27
 
 Added bounded daemon task admission for older-laptop reliability.

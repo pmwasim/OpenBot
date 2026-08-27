@@ -122,7 +122,7 @@ async function main() {
   if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/export') || !appSource.includes('/result') || !appSource.includes('/artifacts') || !appSource.includes('Open structured result') || !appSource.includes('Artifacts') || !appSource.includes('Download audit') || !appSource.includes('/resume') || !appSource.includes('resumeTask') || !appSource.includes('Resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/tasks/') || !appSource.includes('after=') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('/api/routines') || !appSource.includes('/api/bots') || !appSource.includes('/messages') || !appSource.includes('loadBotConversation') || !appSource.includes('/api/connectors') || !appSource.includes('loadConnectors') || !appSource.includes('connector.fetch') || !appSource.includes('Run now') || !appSource.includes('botId') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, recovery, task history, live activity, memory, skills, routines, bots, connectors, persistent conversations, and result/artifact delivery');
   if (!appSource.includes('retryTask') || !appSource.includes('/retry') || !serverSource.includes("url.pathname.endsWith('/retry')") || !cliSource.includes("command === 'retry'") || !clientSource.includes('daemonRetryTask')) throw new Error('failed-task retry is not exposed across clients');
   pass('failed-task retry is exposed across clients');
-  if (!configSource.includes('maxConcurrentTasks') || !configSource.includes('maxQueuedTasks') || !serverSource.includes('createTaskQueue') || !serverSource.includes('scheduleTaskRun') || !queueSource.includes('maxQueueDepth')) throw new Error('daemon task queue is not bounded across configuration and execution');
+  if (!configSource.includes('maxConcurrentTasks') || !configSource.includes('maxQueuedTasks') || !serverSource.includes('createTaskQueue') || !serverSource.includes('scheduleTaskRun') || !serverSource.includes('recoverQueuedTaskRuns') || !queueSource.includes('maxQueueDepth') || !queueSource.includes('listRecoverableQueuedTasks') || !appSource.includes("started.status === 'queued'")) throw new Error('daemon task queue is not bounded across configuration, recovery, execution, and dashboard');
   pass('daemon task execution uses a bounded resource-aware queue');
   if (appSource.includes('e.innerHTML=`')) throw new Error('dashboard renders state with unsafe innerHTML');
   pass('dashboard exposes workspace, action cards, structured results, audit links, and downloadable task artifacts safely');
@@ -299,7 +299,7 @@ async function main() {
   pass('chat-completions local model protocol works without changing the default');
 
   const { loadConfig, publicConfig } = await import(pathToFileURL(join(root, 'lib/config.mjs')).href);
-  const { createTaskQueue, TASK_QUEUE_LIMITS } = await import(pathToFileURL(join(root, 'lib/task-queue.mjs')).href);
+  const { createTaskQueue, TASK_QUEUE_LIMITS, listRecoverableQueuedTasks } = await import(pathToFileURL(join(root, 'lib/task-queue.mjs')).href);
   const queueCalls = [];
   let releaseQueue;
   const queueGate = new Promise((resolve) => { releaseQueue = resolve; });
@@ -550,6 +550,15 @@ async function main() {
     if (!migrated.approvals.some((item) => item.id === 'legacy-1')) throw new Error('legacy approval missing');
     const created = await first.createTask({ prompt: 'phase0 durability', kind: 'plan' });
     if (!created.task?.id || created.task.status !== 'pending') throw new Error('create task');
+    await first.append({ type: 'task.queued', taskId: created.task.id, payload: { status: 'pending', queueState: 'queued' } });
+    if ((await first.getTask(created.task.id)).queueState !== 'queued') throw new Error('queued task state was not durable');
+    await first.append({ type: 'task.admitted', taskId: created.task.id, payload: { queueState: 'running' } });
+    await first.append({ type: 'task.released', taskId: created.task.id, payload: { queueState: 'idle' } });
+    if ((await (await openStore({ dataDir })).getTask(created.task.id)).queueState !== 'idle') throw new Error('queued task state did not survive reopen');
+    const recoverable = await freshStore.createTask({ prompt: 'recover queued work', kind: 'plan', workspace: fileWs });
+    await freshStore.append({ type: 'task.queued', taskId: recoverable.task.id, payload: { status: 'pending', queueState: 'queued' } });
+    if (!(await listRecoverableQueuedTasks(freshStore)).some((task) => task.id === recoverable.task.id)) throw new Error('queued task was not recoverable after restart');
+    pass('queued task admission state survives daemon restart');
     const retryable = await first.createTask({ prompt: 'retry after local failure', kind: 'plan', workspace: fileWs });
     await first.append({ type: 'task.status', taskId: retryable.task.id, payload: { status: 'failed', error: 'temporary model failure' } });
     const retried = await first.setTaskStatus(retryable.task.id, 'retry');

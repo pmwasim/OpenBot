@@ -265,6 +265,8 @@ function updateTaskMessage(taskItem) {
     if (taskItem.botId && botSelect.value === taskItem.botId) void loadBotConversation(taskItem.botId).catch(() => {});
   } else if (status === 'paused') {
     reply.textContent = 'Task paused. Resume it from Recent tasks when ready.';
+  } else if (taskItem.queueState === 'queued') {
+    reply.textContent = 'Task queued. It will start when local capacity is available…';
   } else {
     reply.textContent = 'Working with the local model…';
   }
@@ -651,7 +653,8 @@ function renderState(state, taskResponse = {}) {
     const card = element('div', 'health recent-task');
     const details = element('div');
     const activity = element('small', '', 'Activity: checking…');
-    details.append(element('b', '', taskItem.prompt || 'Untitled task'), element('small', '', taskItem.status || 'unknown'), activity);
+    const displayStatus = taskItem.queueState === 'queued' ? 'queued' : (taskItem.status || 'unknown');
+    details.append(element('b', '', taskItem.prompt || 'Untitled task'), element('small', '', displayStatus), activity);
     taskActivityNodes.set(taskItem.id, activity);
     const taskStatus = String(taskItem.status || '').toLowerCase();
     const resultText = taskItem.result ?? taskItem.error ?? (taskStatus === 'cancelled' ? 'Task cancelled.' : null);
@@ -811,8 +814,8 @@ async function startTask(message, pending, root) {
     body: JSON.stringify({ provider: providerSelect.value || selectedProvider, model: modelSelect.value || undefined, skill: selectedSkill, botId: selectedBot, background: true })
   });
   const started = await runResponse.json();
-  if (!runResponse.ok || started.taskId !== taskId || started.status !== 'started') throw new Error(started.error || 'Task could not be started.');
-  pending.querySelector('p').textContent = 'Task started. Watching local activity…';
+  if (!runResponse.ok || started.taskId !== taskId || !['started', 'queued'].includes(started.status)) throw new Error(started.error || 'Task could not be started.');
+  pending.querySelector('p').textContent = started.status === 'queued' ? 'Task queued. Watching local activity…' : 'Task started. Watching local activity…';
   await load();
   await refreshTaskActivity();
 }

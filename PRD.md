@@ -76,7 +76,7 @@ OpenBot should provide a practical middle path: real work through isolated worke
 
 ### Material gaps and risks
 
-- The local agent loop is bounded and structured, but it supports only the first-party file/shell/browser tool set and one task at a time.
+- The local agent loop is bounded and structured, and supports the first-party file/shell/browser tool set behind a resource-aware task queue.
 - Approval records are attached to proposed actions and diffs, and the dashboard resumes the same task after an operator approves it.
 - Local routines can be created, scheduled, run immediately, paused, and audited with a bounded recent-run history.
 - No multi-user authorization, CSRF protection, or rate limiting exists; explicit non-loopback mode now requires a shared bearer token.
@@ -129,6 +129,7 @@ The first meaningful “bot, not control panel” milestone is implemented on th
 - Operators can pause, resume, or cancel controllable tasks from recent-task dashboard cards, with durable status transitions and refreshed activity history.
 - Failed tasks can be retried through the API, CLI, or dashboard with a durable retry count capped at three; retrying clears the stale outcome and requires fresh approval for consequential actions.
 - The daemon queues task and routine execution behind a bounded resource-aware admission layer, preventing unbounded concurrent local-model work on older laptops.
+- Queued asynchronous tasks persist their admission state; daemon restart recovers only work that was waiting before admission, while already-running work remains explicit-resume-only to avoid repeating side effects.
 - The agent loop rechecks durable operator control state at model/action boundaries and does not claim completion after a task is paused or cancelled.
 - The daemon propagates pause/cancel signals to in-flight local model, shell, and browser operations where the underlying runtime supports cancellation.
 - New and pending tasks are claimed before controller execution, preventing a concurrent pause/cancel request from being overwritten by late startup state.

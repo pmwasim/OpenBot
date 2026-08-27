@@ -13,7 +13,7 @@ import { claimDaemonPid, releaseDaemonPid } from './lib/daemon.mjs';
 import { taskResultView } from './lib/task-result.mjs';
 import { redactArtifactContent, taskArtifactInventory, TASK_ARTIFACT_LIMITS } from './lib/task-artifacts.mjs';
 import { fileRead } from './lib/workers/file.mjs';
-import { createTaskQueue } from './lib/task-queue.mjs';
+import { createTaskQueue, listRecoverableQueuedTasks } from './lib/task-queue.mjs';
 
 const config = loadConfig();
 const maxBodyBytes = 64 * 1024;
@@ -176,7 +176,9 @@ async function runAgentTask({ taskId, prompt, workspace, model, providerName, ma
 }
 
 async function runTaskInBackground(task) {
+  const durable = !task.createTask;
   try {
+    if (durable) await store.append({ type: 'task.admitted', taskId: task.id, actor: 'daemon', payload: { queueState: 'running' } });
     const selected = await resolveAgentModel(task.model, task.provider);
     const result = await runAgentTask({ taskId: task.createTask ? undefined : task.id, prompt: task.prompt, workspace: task.workspace, model: selected, providerName: task.provider, maxTurns: task.maxTurns, approvalId: task.approvalId, skill: task.skill, botId: task.botId, recordBotConversation: task.recordBotConversation });
     return result;
@@ -186,6 +188,11 @@ async function runTaskInBackground(task) {
       await store.append({ type: 'task.status', taskId: task.id, actor: 'daemon', payload: { status: 'failed', reason: 'background_error', error: redactSecrets(error.message || 'Background task failed.') } }).catch(() => {});
     }
     return { taskId: task.createTask ? null : task.id, status: 'failed', error: redactSecrets(error.message || 'Background task failed.') };
+  } finally {
+    if (durable) {
+      const current = await store.getTask(task.id).catch(() => null);
+      await store.append({ type: 'task.released', taskId: task.id, actor: 'daemon', payload: { queueState: 'idle', status: current?.status || 'unknown' } }).catch(() => {});
+    }
   }
 }
 
@@ -195,16 +202,35 @@ const taskQueue = createTaskQueue({
   run: runTaskInBackground
 });
 
-function scheduleTaskRun(task) {
-  return taskQueue.enqueue(task);
+async function scheduleTaskRun(task, { recover = false } = {}) {
+  if (taskQueue.has(task.id)) throw Object.assign(new Error('Task is already running or queued.'), { statusCode: 409 });
+  if (!taskQueue.canAccept()) throw Object.assign(new Error('Task queue is full. Wait for an active task to finish.'), { statusCode: 429 });
+  if (!task.createTask && !recover) {
+    await store.append({ type: 'task.queued', taskId: task.id, actor: 'daemon', payload: { queueState: 'queued', status: 'pending' } });
+  }
+  try {
+    return taskQueue.enqueue(task);
+  } catch (error) {
+    if (!task.createTask && !recover) await store.append({ type: 'task.released', taskId: task.id, actor: 'daemon', payload: { queueState: 'idle', status: 'queue_rejected' } }).catch(() => {});
+    throw error;
+  }
 }
+
+async function recoverQueuedTaskRuns() {
+  const queued = await listRecoverableQueuedTasks(store);
+  for (const task of queued) {
+    try { void (await scheduleTaskRun(task, { recover: true })).promise; } catch (error) { console.warn(`Could not recover queued task ${task.id}: ${error.message}`); }
+  }
+}
+
+void recoverQueuedTaskRuns().catch((error) => console.warn(`Queued task recovery unavailable: ${error.message}`));
 
 const routineScheduler = createRoutineScheduler({
   store,
   runRoutine: async (routine) => {
     const model = await resolveAgentModel();
     const taskId = `routine-${routine.id}-${Date.now()}`;
-    return scheduleTaskRun({ id: taskId, createTask: true, prompt: routine.prompt, workspace: routine.workspace, model, provider: 'local-model', skill: routine.skill, botId: routine.botId, recordBotConversation: true }).promise;
+    return (await scheduleTaskRun({ id: taskId, createTask: true, prompt: routine.prompt, workspace: routine.workspace, model, provider: 'local-model', skill: routine.skill, botId: routine.botId, recordBotConversation: true })).promise;
   }
 });
 
@@ -559,9 +585,8 @@ const app = http.createServer(async (req, res) => {
       if (activeTaskControllers.has(taskId)) return json(res, 409, { error: 'Task is already running.' });
       const payload = await body(req);
       if (payload.provider && payload.provider !== task.provider) return json(res, 409, { error: 'Task provider does not match the requested provider.' });
-      if (!taskQueue.canAccept()) return json(res, 429, { error: 'Task queue is full. Wait for an active task to finish.' });
       await store.setTaskStatus(taskId, 'retry');
-      const scheduled = scheduleTaskRun({ ...task, model: payload.model, provider: task.provider, maxTurns: payload.maxTurns, approvalId: payload.approvalId, skill: payload.skill || task.skill, botId: payload.botId || task.botId, recordBotConversation: false });
+      const scheduled = await scheduleTaskRun({ ...task, model: payload.model, provider: task.provider, maxTurns: payload.maxTurns, approvalId: payload.approvalId, skill: payload.skill || task.skill, botId: payload.botId || task.botId, recordBotConversation: false });
       return json(res, 202, { taskId, status: scheduled.state, task: await store.getTask(taskId) });
     }
     if (url.pathname.startsWith('/api/tasks/') && url.pathname.endsWith('/run') && req.method === 'POST') {
@@ -573,7 +598,7 @@ const app = http.createServer(async (req, res) => {
       const payload = await body(req);
       const providerName = payload.provider || task.provider || 'local-model';
       if (providerName !== task.provider) return json(res, 409, { error: 'Task provider does not match the requested provider.' });
-      const scheduled = scheduleTaskRun({ ...task, model: payload.model, provider: providerName, maxTurns: payload.maxTurns, approvalId: payload.approvalId, skill: payload.skill || task.skill, botId: payload.botId || task.botId, recordBotConversation: true });
+      const scheduled = await scheduleTaskRun({ ...task, model: payload.model, provider: providerName, maxTurns: payload.maxTurns, approvalId: payload.approvalId, skill: payload.skill || task.skill, botId: payload.botId || task.botId, recordBotConversation: true });
       return json(res, 202, { taskId, status: scheduled.state, task });
     }
     if (url.pathname === '/api/chat' && req.method === 'POST') {
