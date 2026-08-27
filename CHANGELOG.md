@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.24 — 2026-08-27
+
+Added concise structured result views for durable tasks.
+
+- Expose `GET /api/tasks/:id/result` with the task outcome, bounded action summaries, status, and update timestamp without returning the full event history.
+- Show a safe result preview and structured-result link on recent-task cards, while retaining the full audit view and downloadable audit artifact.
+- Preserve DOM-safe rendering, task-id binding, redaction, no-cache responses, zero mandatory spend, old-laptop portability, and brand-neutral public surfaces.
+
 ## 0.4.23 — 2026-08-27
 
 Added portable task-result delivery from the dashboard.
