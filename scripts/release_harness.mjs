@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createServer, request } from 'node:http';
-import { access, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -121,6 +121,10 @@ async function main() {
   const browserSource = await readFile(join(root, 'lib/workers/browser.mjs'), 'utf8');
   const engineSource = await readFile(join(root, 'lib/engine.mjs'), 'utf8');
   const connectorSource = await readFile(join(root, 'lib/connectors.mjs'), 'utf8');
+  if (!storeSource.includes("chmod(dataDir, 0o700)") || !storeSource.includes("mode: 0o600") || !storeSource.includes("chmod(temporary, 0o600)")) throw new Error('event store does not enforce owner-only permissions');
+  pass('event store enforces owner-only permissions');
+  if (browserSource.includes('const html = await response.text()') || !browserSource.includes('boundedBody(response, 1_000_000)') || !browserSource.includes('response.body.getReader()')) throw new Error('browser fetch does not enforce a streaming response limit');
+  pass('browser fetch enforces a streaming response limit');
   if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"') || !indexSource.includes('id="recent-tasks"') || !indexSource.includes('id="memories"') || !indexSource.includes('id="memory-form"') || !indexSource.includes('id="skills"') || !indexSource.includes('id="skill-form"') || !indexSource.includes('id="routine-form"') || !indexSource.includes('id="routine-schedule"') || !indexSource.includes('id="bot"') || !indexSource.includes('id="bot-form"') || !indexSource.includes('id="bot-name"') || !indexSource.includes('id="provider"') || !indexSource.includes('id="model"') || !indexSource.includes('id="connector-form"') || !indexSource.includes('id="connectors"')) throw new Error('dashboard is missing workspace, provider, model, bot, connector, task history, memory, skill, or routine controls');
   if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/export') || !appSource.includes('/result') || !appSource.includes('/artifacts') || !appSource.includes('Open structured result') || !appSource.includes('Artifacts') || !appSource.includes('Download audit') || !appSource.includes('/resume') || !appSource.includes('resumeTask') || !appSource.includes('Resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/tasks/') || !appSource.includes('after=') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('/api/routines') || !appSource.includes('/api/bots') || !appSource.includes('/messages') || !appSource.includes('loadBotConversation') || !appSource.includes('/api/connectors') || !appSource.includes('loadConnectors') || !appSource.includes('connector.fetch') || !appSource.includes('Run now') || !appSource.includes('botId') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, recovery, task history, live activity, memory, skills, routines, bots, connectors, persistent conversations, and result/artifact delivery');
   if (!appSource.includes('retryTask') || !appSource.includes('/retry') || !serverSource.includes("url.pathname.endsWith('/retry')") || !cliSource.includes("command === 'retry'") || !clientSource.includes('daemonRetryTask')) throw new Error('failed-task retry is not exposed across clients');
@@ -489,11 +493,17 @@ async function main() {
   const { createRoutineScheduler, nextRoutineRun, parseRoutineSchedule } = await import(pathToFileURL(join(root, 'lib/routines.mjs')).href);
   const { fileRead, fileWrite } = await import(pathToFileURL(join(root, 'lib/workers/file.mjs')).href);
   const { shellExec } = await import(pathToFileURL(join(root, 'lib/workers/shell.mjs')).href);
+  const { browserFetch } = await import(pathToFileURL(join(root, 'lib/workers/browser.mjs')).href);
   try {
     const freshStore = await openStore({ dataDir: freshDataDir });
     const freshState = await freshStore.getState();
     if (freshState.approvals.length || freshState.routines.length) throw new Error('fresh store contains synthetic approvals or routines');
     pass('fresh store starts without synthetic user work');
+    await freshStore.createMemory({ workspace: '/tmp/permission-check', key: 'mode', value: 'check' });
+    const dataDirMode = (await stat(freshDataDir)).mode & 0o777;
+    const eventsFileMode = (await stat(join(freshDataDir, 'events.jsonl'))).mode & 0o777;
+    if (dataDirMode !== 0o700 || eventsFileMode !== 0o600) throw new Error(`event store permissions ${dataDirMode.toString(8)}/${eventsFileMode.toString(8)}`);
+    pass('event store persists owner-only directory and event permissions');
     await writeFile(join(fileWs, 'oversized-preview.txt'), 'x'.repeat(1024), 'utf8');
     let oversizedReadRejected = false;
     try { await fileRead(fileWs, 'oversized-preview.txt', { maxBytes: 100 }); } catch (error) { oversizedReadRejected = error.code === 'OPENBOT_FILE_TOO_LARGE' && error.statusCode === 413; }
@@ -1343,12 +1353,17 @@ async function main() {
     const html = await readFile(join(root, 'fixtures/browser/research.html'), 'utf8');
     const fixture = createServer((req, res) => {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      res.end(html);
+      res.end(req.url === '/large' ? 'x'.repeat(1_000_001) : html);
     });
     await listen(fixture);
     try {
       const address = fixture.address();
       const fixtureUrl = `http://127.0.0.1:${address.port}/research`;
+      let oversizedBrowserRejected = false;
+      try { await browserFetch({ url: `http://127.0.0.1:${address.port}/large`, workspace: browserWs, allowHosts: ['127.0.0.1'] }); }
+      catch (error) { oversizedBrowserRejected = error.message === 'Response is too large.'; }
+      if (!oversizedBrowserRejected) throw new Error('browser fetch accepted an oversized response');
+      pass('browser fetch rejects oversized responses before saving');
       const fetched = await engine.act({
         workspace: browserWs,
         tool: 'browser.fetch',
