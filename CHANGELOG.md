@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.28 — 2026-08-27
+
+Added opt-in browser research hosts while preserving the local-first boundary.
+
+- Keep browser access restricted to `127.0.0.1` and `localhost` by default; operators can configure an exact host list with `OPENBOT_BROWSER_ALLOW_HOSTS`.
+- Thread the allowlist through policy, the browser worker, the daemon, CLI actions, and the read-only Settings view; redirects remain disabled.
+- Keep every browser fetch approval-gated before content is saved into the task workspace, with the existing path containment and audit controls.
+- Preserve zero mandatory spend, old-laptop portability, local-only defaults, and brand-neutral public surfaces.
+
 ## 0.4.27 — 2026-08-27
 
 Made named bots usable as persistent conversations across clients.

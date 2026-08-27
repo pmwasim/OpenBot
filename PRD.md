@@ -106,6 +106,7 @@ The first meaningful “bot, not control panel” milestone is implemented on th
 - CLI operators can read the same concise result contract locally or through the shared daemon with `result <task-id>` and `result --daemon <task-id>`; text, arguments, action results, and action count remain bounded.
 - Operators can inspect a typed inventory of files actually produced by successful task actions and preview one selected workspace-relative artifact through the bounded API route or dashboard/CLI links; proposed or failed targets are not inventoried.
 - Operators can select a named bot in the dashboard to load its bounded durable conversation, see completed bot tasks return to that history, and inspect the same redacted message contract through the local or daemon-routed CLI.
+- Operators can opt into exact browser host allowlisting through `OPENBOT_BROWSER_ALLOW_HOSTS`; loopback remains the default, redirects are disabled, and browser saves remain approval-gated and workspace-contained.
 - Operators can save, list, and delete workspace-scoped local memory; only matching memory is injected into agent context after redaction.
 - Operators can save, list, select, and delete local skills; selected skills are redacted, bounded, audited, and injected only as untrusted guidance under the OpenBot policy.
 - Operators can create, list, pause, enable, run, and audit local routines. The in-process scheduler uses one lightweight timer, caps routines at 50 and run history at 20 per routine, and never auto-approves consequential actions.
