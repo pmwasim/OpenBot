@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.13 — 2026-08-27
+
+Hardened cooperative task stopping.
+
+- Recheck durable pause/cancel state before turns, after model responses, and before actions.
+- Return a paused or cancelled task without writing a false completion event after operator control.
+- Add a regression check for cancellation during a model call.
+- Preserve the existing approval, workspace, audit, and bounded-loop boundaries.
+
 ## 0.4.12 — 2026-08-27
 
 Added dashboard task control parity.

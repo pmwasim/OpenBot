@@ -244,6 +244,19 @@ async function main() {
   if (!loopStore.events.some((event) => event.type === 'agent.action.executed')) throw new Error('agent action audit');
   pass('agent contract rejects malformed tools and completes a safe multi-turn loop');
 
+  let controlledStatus = 'pending';
+  const controlledStore = fakeAgentStore();
+  controlledStore.getTask = async () => ({ id: 'task-agent-harness', workspace: '/tmp/agent-harness', status: controlledStatus });
+  let controlledProviderCalls = 0;
+  const controlled = createAgentController({
+    store: controlledStore,
+    engine: loopEngine,
+    provider: { async chatStructured() { controlledProviderCalls += 1; controlledStatus = 'cancelled'; return { ok: true, model: 'fixture', reply: JSON.stringify({ reply: 'This must not complete.' }) }; } }
+  });
+  const controlledResult = await controlled.run({ prompt: 'Stop if cancelled.', workspace: '/tmp/agent-harness', model: 'fixture' });
+  if (controlledResult.status !== 'cancelled' || controlledProviderCalls !== 1 || controlledStore.events.some((event) => event.type === 'agent.completed')) throw new Error('agent cancellation race');
+  pass('agent loop observes pause/cancel state changes before claiming completion');
+
   const memoryContextStore = fakeAgentStore();
   memoryContextStore.listMemories = async () => [{ key: 'response_style', value: 'Use concise bullet points.', workspace: '/tmp/agent-harness' }];
   let capturedMemoryMessages = [];
