@@ -12,6 +12,7 @@ let botProfiles = new Map();
 let modelName = '';
 let taskEventOffsets = new Map();
 let taskActivityNodes = new Map();
+let taskMessages = new Map();
 let watchedTasks = [];
 let taskActivityTimer = null;
 let taskActivityBusy = false;
@@ -63,6 +64,29 @@ function describeTaskEvent(event) {
   return `${type}${status}`;
 }
 
+function updateTaskMessage(taskItem) {
+  const message = taskMessages.get(taskItem?.id);
+  if (!message) return;
+  const status = String(taskItem.status || '').toLowerCase();
+  const reply = message.querySelector('p');
+  if (!reply) return;
+  if (status === 'completed') {
+    reply.textContent = taskItem.result || 'Task completed.';
+    taskMessages.delete(taskItem.id);
+  } else if (status === 'failed') {
+    reply.textContent = taskItem.error || 'Task failed.';
+    message.classList.add('error');
+    taskMessages.delete(taskItem.id);
+  } else if (status === 'cancelled') {
+    reply.textContent = 'Task cancelled.';
+    taskMessages.delete(taskItem.id);
+  } else if (status === 'paused') {
+    reply.textContent = 'Task paused. Resume it from Recent tasks when ready.';
+  } else {
+    reply.textContent = 'Working with the local model…';
+  }
+}
+
 async function refreshTaskActivity() {
   if (taskActivityBusy) return;
   taskActivityBusy = true;
@@ -73,6 +97,7 @@ async function refreshTaskActivity() {
       const response = await fetch(`/api/tasks/${encodeURIComponent(taskItem.id)}/events?after=${offset}`);
       const data = await response.json();
       if (!response.ok) return;
+      updateTaskMessage(data.task || taskItem);
       if (Array.isArray(data.events) && data.events.length) {
         taskEventOffsets.set(taskItem.id, Number(data.nextSeq) || offset);
         const node = taskActivityNodes.get(taskItem.id);
@@ -325,6 +350,7 @@ function renderState(state, taskResponse = {}) {
   taskActivityNodes = new Map();
   document.querySelector('#task-count').textContent = String(tasks.length);
   for (const taskItem of tasks.slice(-8).reverse()) {
+    updateTaskMessage(taskItem);
     const card = element('div', 'health recent-task');
     const details = element('div');
     const activity = element('small', '', 'Activity: checking…');
@@ -421,6 +447,31 @@ async function decide(approval, decision) {
     });
   }
   await load();
+}
+
+async function startTask(message, pending, root) {
+  const selectedSkill = skillSelect.value || undefined;
+  const selectedBot = botSelect.value || undefined;
+  const createResponse = await fetch('/api/tasks', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ prompt: message, kind: 'plan', workspace: root, owner: 'dashboard', skill: selectedSkill, botId: selectedBot })
+  });
+  const created = await createResponse.json();
+  if (!createResponse.ok || !created.task?.id) throw new Error(created.error || 'Task could not be created.');
+  const taskId = created.task.id;
+  taskMessages.set(taskId, pending);
+  renderAuditLink(pending, taskId);
+  const runResponse = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/run`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ model: modelName || undefined, skill: selectedSkill, botId: selectedBot, background: true })
+  });
+  const started = await runResponse.json();
+  if (!runResponse.ok || started.taskId !== taskId || started.status !== 'started') throw new Error(started.error || 'Task could not be started.');
+  pending.querySelector('p').textContent = 'Task started. Watching local activity…';
+  await load();
+  await refreshTaskActivity();
 }
 
 memoryForm.addEventListener('submit', async (event) => {
@@ -544,18 +595,7 @@ form.addEventListener('submit', async (event) => {
   task.value = '';
   const pending = addMessage('bot', 'OpenBot', 'Working with the local model…');
   try {
-    const response = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ message, workspace: root, model: modelName || undefined, skill: skillSelect.value || undefined, botId: botSelect.value || undefined })
-    });
-    const data = await response.json();
-    pending.querySelector('b').textContent = data.model || 'OpenBot';
-    pending.querySelector('p').textContent = data.reply || data.error || data.status || 'OpenBot finished without a reply.';
-    if (!response.ok) pending.classList.add('error');
-    renderActions(pending, data);
-    renderAuditLink(pending, data.taskId);
-    await load();
+    await startTask(message, pending, root);
   } catch {
     pending.classList.add('error');
     pending.querySelector('p').textContent = 'OpenBot could not reach the local service.';

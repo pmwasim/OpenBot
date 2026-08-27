@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { loadConfig } from './lib/config.mjs';
 import { assertBindHost, hasBearerToken } from './lib/loopback.mjs';
-import { createProviderHub } from './lib/provider.mjs';
+import { createProviderHub, redactSecrets } from './lib/provider.mjs';
 import { openStore } from './lib/store.mjs';
 import { createEngine } from './lib/engine.mjs';
 import { createAgentController } from './lib/agent.mjs';
@@ -52,6 +52,7 @@ function fixtureAgentProvider(raw) {
   let index = 0;
   return {
     async chatStructured({ model, signal }) {
+      if (model === 'fixture-async') return { ok: true, status: 200, model, reply: JSON.stringify({ reply: 'The asynchronous task completed.' }) };
       if (model === 'fixture-slow') {
         await new Promise((resolve, reject) => {
           const timer = setTimeout(() => reject(new Error('Slow fixture timed out.')), 30000);
@@ -95,9 +96,11 @@ async function resolveBot(botId) {
   return bot;
 }
 
-async function runAgentTask({ taskId, prompt, workspace, model, maxTurns, approvalId, skill, botId }) {
+async function runAgentTask({ taskId, prompt, workspace, model, maxTurns, approvalId, skill, botId, recordBotConversation = false }) {
   const isNewTask = !taskId;
   const existingTask = taskId ? await store.getTask(taskId) : null;
+  const selectedPrompt = String(prompt || existingTask?.prompt || '').trim();
+  if (!selectedPrompt) throw Object.assign(new Error('A task prompt is required.'), { statusCode: 400 });
   const bot = await resolveBot(botId || existingTask?.botId);
   const selectedWorkspace = workspace || bot?.workspace;
   if (!selectedWorkspace || selectedWorkspace === 'local') throw Object.assign(new Error('An explicit workspace path is required for agent work.'), { statusCode: 400 });
@@ -109,7 +112,7 @@ async function runAgentTask({ taskId, prompt, workspace, model, maxTurns, approv
   }
   if (isNewTask) {
     const created = await store.createTask({
-      prompt,
+      prompt: selectedPrompt,
       kind: 'plan',
       provider: 'local-model',
       workspace: selectedWorkspace,
@@ -141,9 +144,9 @@ async function runAgentTask({ taskId, prompt, workspace, model, maxTurns, approv
       maxActions: config.agentMaxActions,
       maxContextChars: config.agentContextChars
     });
-    const result = await controller.run({ taskId, prompt, workspace: selectedWorkspace, model, approvalId, skill, bot, signal: abortController.signal });
-    if (bot && isNewTask) {
-      await store.recordBotMessage(bot.id, { role: 'user', content: prompt, taskId });
+    const result = await controller.run({ taskId, prompt: selectedPrompt, workspace: selectedWorkspace, model, approvalId, skill, bot, signal: abortController.signal });
+    if (bot && (isNewTask || recordBotConversation)) {
+      await store.recordBotMessage(bot.id, { role: 'user', content: selectedPrompt, taskId });
       await store.recordBotMessage(bot.id, {
         role: 'assistant',
         content: result.reply || (result.status === 'waiting_approval' ? 'Waiting for approval before continuing.' : `Task stopped with status: ${result.status}.`),
@@ -153,6 +156,18 @@ async function runAgentTask({ taskId, prompt, workspace, model, maxTurns, approv
     return { botId: bot?.id || null, ...result };
   } finally {
     if (activeTaskControllers.get(taskId) === abortController) activeTaskControllers.delete(taskId);
+  }
+}
+
+async function runTaskInBackground(task) {
+  try {
+    const selected = await resolveAgentModel(task.model);
+    await runAgentTask({ taskId: task.id, prompt: task.prompt, workspace: task.workspace, model: selected, maxTurns: task.maxTurns, approvalId: task.approvalId, skill: task.skill, botId: task.botId, recordBotConversation: task.recordBotConversation });
+  } catch (error) {
+    const current = await store.getTask(task.id).catch(() => null);
+    if (current && ['pending', 'running'].includes(current.status)) {
+      await store.append({ type: 'task.status', taskId: task.id, actor: 'daemon', payload: { status: 'failed', reason: 'background_error', error: redactSecrets(error.message || 'Background task failed.') } }).catch(() => {});
+    }
   }
 }
 
@@ -339,6 +354,16 @@ const app = http.createServer(async (req, res) => {
       const updated = await store.setTaskStatus(taskId, action);
       activeTaskControllers.get(taskId)?.abort();
       return json(res, 200, { task: updated });
+    }
+    if (url.pathname.startsWith('/api/tasks/') && url.pathname.endsWith('/run') && req.method === 'POST') {
+      const taskId = decodeURIComponent(url.pathname.slice('/api/tasks/'.length, -'/run'.length));
+      const task = await store.getTask(taskId);
+      if (!task) return json(res, 404, { error: 'Task not found' });
+      if (task.status !== 'pending') return json(res, 409, { error: `Task is not runnable from status "${task.status}".` });
+      if (activeTaskControllers.has(taskId)) return json(res, 409, { error: 'Task is already running.' });
+      const payload = await body(req);
+      void runTaskInBackground({ ...task, model: payload.model, maxTurns: payload.maxTurns, approvalId: payload.approvalId, skill: payload.skill || task.skill, botId: payload.botId || task.botId, recordBotConversation: true });
+      return json(res, 202, { taskId, status: 'started', task });
     }
     if (url.pathname === '/api/chat' && req.method === 'POST') {
       const { message, model, workspace, taskId, maxTurns, skill, botId } = await body(req);

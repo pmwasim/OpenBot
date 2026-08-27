@@ -11,6 +11,8 @@ OpenBot is a free and open-source, self-hostable, local-first autonomous agent p
 
 The current implementation has a bounded local-model agent loop that can execute safe file, shell-diagnostic, and browser-fetch actions through the audited engine, while stopping for approval before consequential work. This PRD defines the path from that first real-work slice to a complete product.
 
+Current product slice: the dashboard submits durable tasks asynchronously, exposes bounded activity and task controls while work runs, persists the final reply, and retains named-bot conversation history for those runs.
+
 ## 2. Evidence and competitive context
 
 Managed cloud-agent products commonly provide persistent assistants, hosted computers, browser and filesystem access, shared sessions, routines, connectors, skills, and extensions. OpenBot keeps the useful task-execution model while placing deployment, data, model choice, permissions, and audit history under the operator's control. Open-source implementations of local agents, approvals, scheduling, memory, and isolated execution remain useful technical reference material; any reuse requires independent license and maintenance review.

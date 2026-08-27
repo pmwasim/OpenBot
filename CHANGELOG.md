@@ -8,6 +8,8 @@ Completed in-flight cancellation hardening.
 - Propagate pause/cancel signals to local model requests, shell child processes, and browser fetches.
 - Preserve cancelled state when control arrives during startup or model work.
 - Expand end-to-end, controller, and worker regression coverage.
+- Run dashboard tasks asynchronously through a durable `/run` boundary, persist final replies, and keep task controls available while work runs.
+- Preserve bounded named-bot conversation history for asynchronously started tasks.
 
 ## 0.4.15 — 2026-08-27
 

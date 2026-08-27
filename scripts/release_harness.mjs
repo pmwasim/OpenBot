@@ -98,6 +98,8 @@ async function main() {
   pass('dashboard exposes safe editing for bots, skills, and workspace memory');
   if (!appSource.includes('controlTask') || !appSource.includes('/control') || !appSource.includes('Pause') || !appSource.includes('Cancel task')) throw new Error('dashboard does not expose bounded task pause and cancel controls');
   pass('dashboard exposes bounded task pause and cancel controls');
+  if (!appSource.includes('startTask') || !appSource.includes('taskMessages') || !appSource.includes('/run') || !appSource.includes('background')) throw new Error('dashboard does not expose asynchronous durable task execution');
+  pass('dashboard exposes asynchronous durable task execution');
   const publicSurfaceFiles = ['README.md', 'PRD.md', 'SECURITY.md', 'CHANGELOG.md', 'cli/openbot.mjs', 'server.mjs', 'lib/config.mjs', 'lib/provider.mjs', 'lib/daemon.mjs', 'lib/client.mjs', 'lib/agent.mjs', 'lib/store.mjs', 'public/index.html', 'public/app.js', 'public/styles.css'];
   const forbiddenPublicBrand = /\b(?:Grok|Ollama|OpenAI|Anthropic|Gemini|Claude|Cursor|Groq)\b|x\.ai/i;
   for (const file of publicSurfaceFiles) {
@@ -550,6 +552,18 @@ async function main() {
       const parsed = JSON.parse(state.body);
       if (state.status !== 200 || !parsed.approvals || !Array.isArray(parsed.bots)) throw new Error('invalid state');
       pass('state endpoint responds with approvals');
+      const asyncCreate = await http('/api/tasks', { method: 'POST', body: JSON.stringify({ prompt: 'Run this asynchronously.', kind: 'plan', workspace: agentWs }) });
+      const asyncCreateBody = JSON.parse(asyncCreate.body);
+      const asyncRun = await http(`/api/tasks/${encodeURIComponent(asyncCreateBody.task.id)}/run`, { method: 'POST', body: JSON.stringify({ model: 'fixture-async', background: true }) });
+      if (asyncCreate.status !== 200 || !asyncCreateBody.task?.id || asyncRun.status !== 202 || JSON.parse(asyncRun.body).taskId !== asyncCreateBody.task.id) throw new Error(`async task start ${asyncCreate.status} ${asyncRun.status} ${asyncRun.body}`);
+      let asyncAfter = null;
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        asyncAfter = JSON.parse((await http(`/api/tasks/${encodeURIComponent(asyncCreateBody.task.id)}`)).body);
+        if (asyncAfter.task?.status === 'completed') break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      if (asyncAfter.task?.status !== 'completed' || asyncAfter.task.result !== 'The asynchronous task completed.') throw new Error(`async task result ${JSON.stringify(asyncAfter)}`);
+      pass('asynchronous task execution returns immediately and persists the final result');
       const inFlightRequest = http('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'Cancel this waiting task.', workspace: agentWs, model: 'fixture-slow' }) });
       let inFlightTask = null;
       for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -577,6 +591,18 @@ async function main() {
       const botAfterChat = JSON.parse((await http(`/api/bots/${encodeURIComponent(botCreateBody.bot.id)}`)).body).bot;
       if (botChat.status !== 200 || botChatBody.status !== 'completed' || botChatBody.botId !== botCreateBody.bot.id || botAfterChat.messages?.length !== 2 || botAfterChat.messages?.[1]?.role !== 'assistant') throw new Error(`bot chat ${botChat.status} ${botChat.body}`);
       pass('bot chat uses the named profile and persists a bounded conversation');
+      const namedAsyncCreate = await http('/api/tasks', { method: 'POST', body: JSON.stringify({ prompt: 'Run the named bot asynchronously.', kind: 'plan', workspace: agentWs, owner: 'dashboard', botId: botCreateBody.bot.id }) });
+      const namedAsyncCreateBody = JSON.parse(namedAsyncCreate.body);
+      const namedAsyncRun = await http(`/api/tasks/${encodeURIComponent(namedAsyncCreateBody.task.id)}/run`, { method: 'POST', body: JSON.stringify({ model: 'fixture-async', background: true }) });
+      let namedAsyncAfter = null;
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        namedAsyncAfter = JSON.parse((await http(`/api/tasks/${encodeURIComponent(namedAsyncCreateBody.task.id)}`)).body);
+        if (namedAsyncAfter.task?.status === 'completed') break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      const botAfterAsync = JSON.parse((await http(`/api/bots/${encodeURIComponent(botCreateBody.bot.id)}`)).body).bot;
+      if (namedAsyncCreate.status !== 200 || namedAsyncRun.status !== 202 || namedAsyncAfter.task?.status !== 'completed' || botAfterAsync.messages?.length !== 4 || botAfterAsync.messages?.[3]?.taskId !== namedAsyncCreateBody.task.id) throw new Error(`named async bot ${namedAsyncCreate.status} ${namedAsyncRun.status} ${JSON.stringify(namedAsyncAfter)} ${JSON.stringify(botAfterAsync.messages)}`);
+      pass('asynchronous named-bot tasks preserve bounded conversation history');
       const routineCreate = await http('/api/routines', { method: 'POST', body: JSON.stringify({ title: 'Nightly review', schedule: 'daily 23:00', prompt: 'Review the workspace and report risks.', workspace: agentWs, botId: botCreateBody.bot.id }) });
       const routineCreateBody = JSON.parse(routineCreate.body);
       if (routineCreate.status !== 200 || !routineCreateBody.routine?.id || routineCreateBody.routine.botId !== botCreateBody.bot.id || !routineCreateBody.routine.nextRunAt) throw new Error(`routine create ${routineCreate.status} ${routineCreate.body}`);

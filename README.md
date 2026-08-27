@@ -23,6 +23,8 @@ OpenBot is a free, open-source, local-first bot that turns a task into bounded, 
 - In-flight cancellation: the daemon propagates task stops to local model requests, shell children, and browser fetches while retaining durable audit state.
 - Race-safe task startup: new and pending tasks are claimed before execution so cancellation cannot be overwritten by a late controller start.
 - In-flight worker cancellation is covered end to end through the daemon, including cancellation during model work and child-process cleanup.
+- Asynchronous dashboard execution: the dashboard creates a durable task, returns immediately, watches bounded activity, and renders the persisted final result while pause, resume, cancel, and audit controls remain available.
+- Named-bot tasks started asynchronously retain the same bounded conversation history as direct bot chat.
 - Daemon-routed CLI task management: `list`, `show`, `logs`, `approve`, and `reject` can inspect or change server-owned task state without a second local store.
 - Daemon-routed task control: `pause`, `resume`, and `cancel` can control server-owned work while preserving durable status transitions and the bounded agent loop.
 - Daemon-routed administration: `memory`, `skill`, `bot`, and `routine` commands can manage server-owned state without a second local store; named-bot chat and routine Run now use the shared daemon loop.
