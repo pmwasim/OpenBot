@@ -72,6 +72,7 @@ async function main() {
     'lib/provider.mjs',
     'lib/daemon.mjs',
     'lib/desktop.mjs',
+    'lib/service.mjs',
     'lib/client.mjs',
     'lib/loopback.mjs',
     'lib/engine.mjs',
@@ -100,6 +101,15 @@ async function main() {
     if (forbiddenPublicBrand.test(source.replace(/\bcursor\s*:/gi, ''))) throw new Error(`public brand reference in ${file}`);
   }
   pass('public repository surfaces are brand-neutral');
+  const { serviceInfo } = await import(pathToFileURL(join(root, 'lib/service.mjs')).href);
+  const serviceConfig = { root, dataDir: '/tmp/openbot-service-data', pidFile: '/tmp/openbot-service-data/openbot.pid', host: '127.0.0.1', port: 4178 };
+  const macService = serviceInfo(serviceConfig, { HOME: '/tmp/openbot-home' }, 'darwin');
+  const linuxService = serviceInfo(serviceConfig, { HOME: '/tmp/openbot-home' }, 'linux');
+  const unsupportedService = serviceInfo(serviceConfig, {}, 'win32');
+  if (!macService.supported || !macService.path.includes('Library/LaunchAgents') || !macService.content.includes('com.openbot.daemon') || !macService.installCommand.length) throw new Error('macOS service manifest');
+  if (!linuxService.supported || !linuxService.path.includes('systemd/user') || !linuxService.content.includes('ExecStart=') || !linuxService.uninstallCommand.length) throw new Error('Linux service manifest');
+  if (unsupportedService.supported || !unsupportedService.reason) throw new Error('unsupported service platform');
+  pass('user-level service manifests are portable and explicit');
 
   const { decide, REQUIRE_APPROVAL_KINDS } = await import(pathToFileURL(join(root, 'lib/policy.mjs')).href);
   for (const kind of REQUIRE_APPROVAL_KINDS) {

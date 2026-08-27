@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.7 — 2026-08-27
+
+Added opt-in user-level daemon service integration.
+
+- Generate and inspect macOS LaunchAgent or Linux systemd user-service manifests with `service info`.
+- Install, enable, disable, and remove the per-user daemon service with `service install` and `service uninstall`.
+- Support `service install --dry-run` and `service uninstall --dry-run` without writing files or invoking the service manager.
+- Keep loopback validation, explicit LAN authentication, the portable detached launcher, and the no-dependency fallback intact.
+- Expand release verification to cover cross-platform manifest generation and unsupported-platform behavior.
+
 ## 0.4.6 — 2026-08-27
 
 Added a lightweight desktop launcher for the local dashboard.

@@ -11,6 +11,7 @@ import { createAgentController } from '../lib/agent.mjs';
 import { createRoutineScheduler } from '../lib/routines.mjs';
 import { daemonStatus, startDaemon, stopDaemon } from '../lib/daemon.mjs';
 import { launchDesktop } from '../lib/desktop.mjs';
+import { installService, serviceInfo, uninstallService } from '../lib/service.mjs';
 import {
   daemonBot, daemonBots, daemonChat, daemonControlTask, daemonCreateBot, daemonCreateMemory, daemonCreateRoutine, daemonCreateSkill,
   daemonDecideApproval, daemonDeleteBot, daemonDeleteMemory, daemonDeleteSkill, daemonList, daemonLogs, daemonMemories, daemonResume,
@@ -24,6 +25,9 @@ Usage: node cli/openbot.mjs <command> [options]
 Commands:
   start              Start the local OpenBot daemon (use --detach for background mode)
   desktop            Start/reuse the daemon and open the local dashboard
+  service info       Show the user-level service manifest for this host
+  service install    Install and enable the user-level daemon service
+  service uninstall  Disable and remove the user-level daemon service
   status             Show local daemon status
   stop               Stop the local daemon
   run <prompt>       Create a task
@@ -61,6 +65,7 @@ Options:
   --json             Print machine-readable JSON
   --detach           Start the daemon in the background
   --no-open          Start the desktop launcher without opening a browser
+  --dry-run          Print service changes without writing or installing them
   --daemon           Send supported chat and task commands through the local daemon
   --kind <kind>      Task or action kind (plan, file.write, shell.exec, browser.visit, ...)
   --model <name>     Local model name (defaults to the first installed model)
@@ -119,6 +124,7 @@ function parseArgs(argv) {
     if (arg === '--json') flags.json = true;
     else if (arg === '--detach') flags.detach = true;
     else if (arg === '--no-open') flags.noOpen = true;
+    else if (arg === '--dry-run') flags.dryRun = true;
     else if (arg === '--daemon') flags.daemon = true;
     else if (arg === '--help' || arg === '-h') flags.help = true;
     else if (arg.startsWith('--') && arg.includes('=')) {
@@ -350,6 +356,21 @@ async function main() {
       }
       const env = flags.noOpen ? { ...process.env, OPENBOT_DESKTOP_NO_OPEN: '1' } : process.env;
       print(await launchDesktop(config, env), true);
+    } catch (error) { fail(error); }
+    return;
+  }
+
+  if (command === 'service') {
+    const subcommand = positional[1];
+    try {
+      if (subcommand === 'info') print(serviceInfo(config), true);
+      else if (subcommand === 'install') {
+        const bind = assertBindHost(config.host, process.env);
+        if (bind.overridden) console.warn(`WARNING: HOST=${config.host} is protected by OPENBOT_AUTH_TOKEN; requests require a bearer token.`);
+        print(await installService(config, process.env, process.platform, { dryRun: flags.dryRun }), true);
+      } else if (subcommand === 'uninstall') {
+        print(await uninstallService(config, process.env, process.platform, { dryRun: flags.dryRun }), true);
+      } else fail(Object.assign(new Error('Use service info, service install, or service uninstall.'), { exitCode: 1 }));
     } catch (error) { fail(error); }
     return;
   }
