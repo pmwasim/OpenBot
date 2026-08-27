@@ -29,6 +29,7 @@ OpenBot is a free, open-source, local-first bot that turns a task into bounded, 
 - Live dashboard activity: active tasks use a bounded server-sent event stream at `/api/tasks/:id/events/stream`; clients fall back to offset polling when streaming is unavailable, and final task states close the stream.
 - Per-task local model choice: the dashboard lists models reported by the local daemon, lets the operator choose one for new or resumed work, and defaults to the first available model; the server validates the selection.
 - Optional compatible provider choice: when explicitly enabled, the dashboard and CLI can use a generic `/v1/models` and `/v1/chat/completions` endpoint per task; local-only mode remains the default and external provider costs are never required.
+- Optional dashboard completion notifications: an operator can grant browser permission and receive a notification when a task started in the current dashboard session completes, fails, or is cancelled; unsupported or denied browsers degrade safely.
 - Daemon-routed CLI task management: `list`, `show`, `logs`, `approve`, and `reject` can inspect or change server-owned task state without a second local store.
 - Daemon-routed task control: `pause`, `resume`, and `cancel` can control server-owned work while preserving durable status transitions and the bounded agent loop.
 - Daemon-routed administration: `memory`, `skill`, `bot`, and `routine` commands can manage server-owned state without a second local store; named-bot chat and routine Run now use the shared daemon loop.

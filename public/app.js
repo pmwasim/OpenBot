@@ -29,6 +29,46 @@ function element(tag, className, text) {
   return node;
 }
 
+const notificationButton = (() => {
+  const existing = document.querySelector('#notifications');
+  if (existing) return existing;
+  const button = element('button', 'text', 'Enable completion notifications');
+  button.id = 'notifications';
+  button.type = 'button';
+  document.querySelector('.right section')?.append(button);
+  return button;
+})();
+
+function syncNotificationControl() {
+  if (typeof Notification === 'undefined') {
+    notificationButton.textContent = 'Notifications unavailable in this browser';
+    notificationButton.disabled = true;
+    return;
+  }
+  if (Notification.permission === 'granted') {
+    notificationButton.textContent = 'Completion notifications enabled';
+    notificationButton.disabled = true;
+  } else if (Notification.permission === 'denied') {
+    notificationButton.textContent = 'Notifications blocked by browser';
+    notificationButton.disabled = true;
+  } else {
+    notificationButton.textContent = 'Enable completion notifications';
+  }
+}
+
+async function enableNotifications() {
+  if (typeof Notification === 'undefined') return;
+  try { await Notification.requestPermission(); } catch {}
+  syncNotificationControl();
+}
+
+function notifyTaskCompletion(taskItem) {
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  const status = String(taskItem?.status || 'finished').toLowerCase();
+  const summary = String(taskItem?.result || taskItem?.error || `Task ${status}.`).slice(0, 180);
+  try { new Notification(`OpenBot task ${status}`, { body: summary }); } catch {}
+}
+
 function addMessage(kind, title, text) {
   const article = element('article', `message ${kind}`);
   article.append(element('span', '', kind === 'user' ? 'YOU' : 'OB'));
@@ -113,13 +153,16 @@ function updateTaskMessage(taskItem) {
   if (!reply) return;
   if (status === 'completed') {
     reply.textContent = taskItem.result || 'Task completed.';
+    notifyTaskCompletion(taskItem);
     taskMessages.delete(taskItem.id);
   } else if (status === 'failed') {
     reply.textContent = taskItem.error || 'Task failed.';
     message.classList.add('error');
+    notifyTaskCompletion(taskItem);
     taskMessages.delete(taskItem.id);
   } else if (status === 'cancelled') {
     reply.textContent = 'Task cancelled.';
+    notifyTaskCompletion(taskItem);
     taskMessages.delete(taskItem.id);
   } else if (status === 'paused') {
     reply.textContent = 'Task paused. Resume it from Recent tasks when ready.';
@@ -634,6 +677,9 @@ providerSelect.addEventListener('change', () => {
   renderModels(Array.isArray(profile?.models) ? profile.models : []);
   updateModelLabel();
 });
+
+notificationButton.addEventListener('click', enableNotifications);
+syncNotificationControl();
 
 botForm.addEventListener('submit', async (event) => {
   event.preventDefault();

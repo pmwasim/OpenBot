@@ -126,6 +126,8 @@ async function main() {
   pass('dashboard exposes explicit per-task model selection');
   if (!appSource.includes('providerSelect') || !appSource.includes('health.providers') || !appSource.includes('provider: providerSelect.value')) throw new Error('dashboard does not expose explicit per-task provider selection');
   pass('dashboard exposes explicit per-task provider selection');
+  if (!appSource.includes("button.id = 'notifications'") || !appSource.includes('Notification') || !appSource.includes('notifyTaskCompletion')) throw new Error('dashboard does not expose task-completion notifications');
+  pass('dashboard exposes lightweight task-completion notifications');
   const publicSurfaceFiles = ['README.md', 'PRD.md', 'SECURITY.md', 'CHANGELOG.md', 'cli/openbot.mjs', 'server.mjs', 'lib/config.mjs', 'lib/provider.mjs', 'lib/daemon.mjs', 'lib/client.mjs', 'lib/agent.mjs', 'lib/store.mjs', 'public/index.html', 'public/app.js', 'public/styles.css'];
   const forbiddenPublicBrand = /\b(?:Grok|Ollama|OpenAI|Anthropic|Gemini|Claude|Cursor|Groq)\b|x\.ai/i;
   for (const file of publicSurfaceFiles) {

@@ -99,6 +99,7 @@ The first meaningful “bot, not control panel” milestone is implemented on th
 - Operators can select the default native local model protocol or an opt-in chat-completions-compatible local protocol without changing application code; local-only endpoint checks remain enforced.
 - Operators can choose among installed local models for each dashboard task, including resume and approval continuation; an empty choice uses the first model reported by the daemon, and server-side availability checks remain authoritative.
 - Operators can opt into a generic compatible remote provider for a task; the daemon discovers its models, routes structured requests, records the selected provider, and keeps that path disabled in local-only mode by default.
+- Operators can explicitly enable lightweight browser notifications for dashboard tasks started in the current session; completion, failure, and cancellation notifications are optional and degrade safely when unsupported.
 - Operators can save, list, and delete workspace-scoped local memory; only matching memory is injected into agent context after redaction.
 - Operators can save, list, select, and delete local skills; selected skills are redacted, bounded, audited, and injected only as untrusted guidance under the OpenBot policy.
 - Operators can create, list, pause, enable, run, and audit local routines. The in-process scheduler uses one lightweight timer, caps routines at 50 and run history at 20 per routine, and never auto-approves consequential actions.

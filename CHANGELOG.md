@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.21 — 2026-08-27
+
+Added optional dashboard task-completion notifications.
+
+- Let an operator explicitly enable browser notifications from the dashboard for tasks started in that session.
+- Notify on completion, failure, or cancellation without polling beyond the existing live activity and fallback paths.
+- Degrade safely when the browser lacks notification support or the operator denies permission; no OS service, account, dependency, or mandatory spend is added.
+- Preserve local-first defaults, approval gates, provider/model boundaries, old-laptop portability, and brand-neutral public surfaces.
+
 ## 0.4.20 — 2026-08-27
 
 Added an opt-in compatible remote provider alongside the local-first provider.
