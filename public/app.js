@@ -541,6 +541,19 @@ function renderState(state, taskResponse = {}) {
     const activity = element('small', '', 'Activity: checking…');
     details.append(element('b', '', taskItem.prompt || 'Untitled task'), element('small', '', taskItem.status || 'unknown'), activity);
     taskActivityNodes.set(taskItem.id, activity);
+    const taskStatus = String(taskItem.status || '').toLowerCase();
+    const resultText = taskItem.result ?? taskItem.error ?? (taskStatus === 'cancelled' ? 'Task cancelled.' : null);
+    if (resultText != null) {
+      const preview = element('details', 'task-result');
+      preview.append(element('summary', '', 'Result preview'));
+      preview.append(element('p', '', String(resultText)));
+      const resultLink = element('a', '', 'Open structured result ↗');
+      resultLink.href = `/api/tasks/${encodeURIComponent(taskItem.id)}/result`;
+      resultLink.target = '_blank';
+      resultLink.rel = 'noopener';
+      preview.append(resultLink);
+      card.append(preview);
+    }
     const audit = element('a', '', 'Audit');
     audit.href = `/api/tasks/${encodeURIComponent(taskItem.id)}/audit`;
     audit.target = '_blank';
@@ -550,7 +563,6 @@ function renderState(state, taskResponse = {}) {
     download.download = 'openbot-task-audit.json';
     download.rel = 'noopener';
     card.append(details, audit, download);
-    const taskStatus = String(taskItem.status || '').toLowerCase();
     if (['pending', 'running', 'paused'].includes(taskStatus)) {
       const resume = element('button', 'text', 'Resume');
       resume.addEventListener('click', () => resumeTask(taskItem, resume));

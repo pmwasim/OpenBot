@@ -217,6 +217,21 @@ function downloadJson(res, filename, body) {
   res.end(JSON.stringify(body));
 }
 
+function taskResultView(task, events) {
+  const actions = events
+    .filter((event) => ['agent.action.executed', 'agent.waiting_approval', 'agent.stopped'].includes(event.type) && event.payload?.action)
+    .slice(-20)
+    .map((event) => redactSecrets(event.payload.action));
+  return {
+    taskId: task.id,
+    status: task.status,
+    result: redactSecrets(task.result ?? null),
+    error: redactSecrets(task.error ?? null),
+    actions,
+    updatedAt: task.updatedAt
+  };
+}
+
 const terminalTaskStatuses = new Set(['completed', 'failed', 'cancelled']);
 
 function writeSse(res, event, data) {
@@ -429,6 +444,13 @@ const app = http.createServer(async (req, res) => {
       const afterSeq = afterRaw == null || afterRaw === '' ? 0 : Number(afterRaw);
       if (!Number.isSafeInteger(afterSeq) || afterSeq < 0) return json(res, 400, { error: 'The event offset must be a non-negative integer.' });
       return streamTaskEvents(req, res, task, afterSeq);
+    }
+    if (url.pathname.startsWith('/api/tasks/') && url.pathname.endsWith('/result') && req.method === 'GET') {
+      const taskId = decodeURIComponent(url.pathname.slice('/api/tasks/'.length, -'/result'.length));
+      const task = await store.getTask(taskId);
+      if (!task) return json(res, 404, { error: 'Task not found' });
+      const events = await store.listEvents({ taskId });
+      return json(res, 200, taskResultView(task, events));
     }
     if (url.pathname.startsWith('/api/tasks/') && url.pathname.endsWith('/export') && req.method === 'GET') {
       const taskId = decodeURIComponent(url.pathname.slice('/api/tasks/'.length, -'/export'.length));
