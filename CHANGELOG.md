@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.16 — 2026-08-27
+
+Completed in-flight cancellation hardening.
+
+- Claim new and pending tasks before controller execution and register their abort controller first.
+- Propagate pause/cancel signals to local model requests, shell child processes, and browser fetches.
+- Preserve cancelled state when control arrives during startup or model work.
+- Expand end-to-end, controller, and worker regression coverage.
+
 ## 0.4.15 — 2026-08-27
 
 Hardened task-start and cancellation races.
