@@ -14,6 +14,7 @@ OpenBot is a free, open-source, local-first bot that turns a task into bounded, 
 - Durable named local bots with a role, instructions, workspace, optional skill, and bounded conversation history managed from the dashboard, API, or CLI.
 - Local routines managed from the dashboard, API, or CLI; schedules are explicit, runs are durable, and Run now uses the same approval-safe agent loop.
 - Portable daemon lifecycle: run OpenBot in the foreground or detach it into a local background process with status, duplicate-start protection, clean stop, and a data-directory log.
+- Incremental task activity feed: the API exposes a bounded event offset and the dashboard shows the latest activity while pending, running, or approval-bound work is active.
 - `legacy` resource profile for older CPU-only laptops: three turns/actions, compact context, and container-free allowlisted diagnostics.
 - Loopback-only defaults, workspace containment, bounded requests, output/time limits, and security response headers.
 - Optional LAN mode requires `OPENBOT_AUTH_TOKEN`; startup refuses an unprotected non-loopback bind.
@@ -45,11 +46,13 @@ Natural-language tasks require a locally installed model runtime. Core administr
 
 ## Product boundary
 
-The current release is a real local bot loop with durable named bots, reusable local skills, and explicit local routines. Desktop automation, connectors, signed extensions, collaboration, multi-user auth, and remote workers remain future work. Local reusable skills are supported as operator-selected instruction packs; they are not executable extensions and cannot expand the policy or tool boundary. The server remains loopback-only by default; explicit LAN mode uses the bearer-token boundary documented in `SECURITY.md`. The scheduler runs while the local daemon is running; it does not install an OS background service.
+The current release is a real local bot loop with durable named bots, reusable local skills, explicit local routines, and incremental task activity visibility. Desktop automation, connectors, signed extensions, collaboration, multi-user auth, and remote workers remain future work. Local reusable skills are supported as operator-selected instruction packs; they are not executable extensions and cannot expand the policy or tool boundary. The server remains loopback-only by default; explicit LAN mode uses the bearer-token boundary documented in `SECURITY.md`. The scheduler runs while the local daemon is running; it does not install an OS background service.
 
 `start --detach` keeps the daemon running after the terminal closes and writes its process record and runtime log under `OPENBOT_DATA_DIR` (default: `data/`). Use `status` to check the daemon and local model health, and `stop` for a clean shutdown. This is host-local background execution: shutting down or sleeping the laptop stops local work.
 
 Add `--daemon` to `chat` after starting the daemon to send the conversation through the shared local HTTP service. This keeps the task, approvals, audit history, routines, and dashboard state in the daemon process. The optional `OPENBOT_DAEMON_URL` environment variable selects an explicitly configured daemon endpoint; when LAN access is enabled, `OPENBOT_AUTH_TOKEN` is sent as its bearer credential.
+
+The dashboard polls `/api/tasks/:id/events?after=<offset>` every 1.5 seconds only while work is active. The endpoint returns the task, newly appended events, and the next offset, so lightweight clients can show progress without opening a permanent connection. Events remain subject to the same redaction and local-access boundaries as task audits.
 
 ## Release verification
 

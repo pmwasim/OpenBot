@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.2 — 2026-08-27
+
+Added lightweight live task activity visibility.
+
+- Expose `/api/tasks/:id/events?after=<offset>` for incremental, durable task-event reads.
+- Show the latest task activity in the dashboard and poll only while work is pending, running, or waiting for approval.
+- Keep event output bounded by the existing redaction and local-access boundaries without adding a runtime dependency or permanent connection.
+- Expand release verification to cover event retrieval and offset exhaustion.
+
 ## 0.4.1 — 2026-08-27
 
 Added opt-in shared-daemon CLI chat parity.

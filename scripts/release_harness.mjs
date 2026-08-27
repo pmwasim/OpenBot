@@ -89,7 +89,7 @@ async function main() {
   const indexSource = await readFile(join(root, 'public/index.html'), 'utf8');
   const appSource = await readFile(join(root, 'public/app.js'), 'utf8');
   if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"') || !indexSource.includes('id="recent-tasks"') || !indexSource.includes('id="memories"') || !indexSource.includes('id="memory-form"') || !indexSource.includes('id="skills"') || !indexSource.includes('id="skill-form"') || !indexSource.includes('id="routine-form"') || !indexSource.includes('id="routine-schedule"') || !indexSource.includes('id="bot"') || !indexSource.includes('id="bot-form"') || !indexSource.includes('id="bot-name"')) throw new Error('dashboard is missing workspace, bot, task history, memory, skill, or routine controls');
-  if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/resume') || !appSource.includes('resumeTask') || !appSource.includes('Resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('/api/routines') || !appSource.includes('/api/bots') || !appSource.includes('Run now') || !appSource.includes('botId') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, recovery, task history, memory, skills, routines, bots, and audit links');
+  if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/resume') || !appSource.includes('resumeTask') || !appSource.includes('Resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/tasks/') || !appSource.includes('after=') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('/api/routines') || !appSource.includes('/api/bots') || !appSource.includes('Run now') || !appSource.includes('botId') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, recovery, task history, live activity, memory, skills, routines, bots, and audit links');
   if (appSource.includes('e.innerHTML=`')) throw new Error('dashboard renders state with unsafe innerHTML');
   pass('dashboard exposes workspace, action cards, and audit links safely');
   const publicSurfaceFiles = ['README.md', 'PRD.md', 'SECURITY.md', 'CHANGELOG.md', 'cli/openbot.mjs', 'server.mjs', 'lib/config.mjs', 'lib/provider.mjs', 'lib/daemon.mjs', 'lib/client.mjs', 'lib/agent.mjs', 'lib/store.mjs', 'public/index.html', 'public/app.js', 'public/styles.css'];
@@ -567,6 +567,19 @@ async function main() {
       const daemonTasks = JSON.parse((await http('/api/tasks')).body).tasks || [];
       if (!daemonTasks.some((task) => task.prompt === 'Use the shared daemon client.' && task.status === 'completed')) throw new Error('daemon client task was not persisted by the server');
       pass('CLI chat can use the shared daemon and persists server-owned task state');
+      const daemonTaskId = daemonCliJson.taskId;
+      const taskEvents = await http(`/api/tasks/${encodeURIComponent(daemonTaskId)}/events`);
+      const taskEventsBody = JSON.parse(taskEvents.body);
+      if (taskEvents.status !== 200 || taskEventsBody.task?.id !== daemonTaskId || !Array.isArray(taskEventsBody.events) || !taskEventsBody.events.length || !Number.isInteger(taskEventsBody.nextSeq)) {
+        throw new Error(`task events ${taskEvents.status} ${taskEvents.body}`);
+      }
+      const latestSeq = taskEventsBody.nextSeq;
+      const emptyAfter = await http(`/api/tasks/${encodeURIComponent(daemonTaskId)}/events?after=${latestSeq}`);
+      const emptyAfterBody = JSON.parse(emptyAfter.body);
+      if (emptyAfter.status !== 200 || emptyAfterBody.events?.length !== 0 || emptyAfterBody.nextSeq !== latestSeq) throw new Error(`task event cursor ${emptyAfter.status} ${emptyAfter.body}`);
+      const invalidAfter = await http(`/api/tasks/${encodeURIComponent(daemonTaskId)}/events?after=not-a-number`);
+      if (invalidAfter.status !== 400) throw new Error(`invalid task event offset ${invalidAfter.status} ${invalidAfter.body}`);
+      pass('task activity can be read incrementally with a durable event cursor');
       const invalidModel = await http('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'test', model: '__not_installed__' }) });
       if (![400, 503].includes(invalidModel.status)) throw new Error(`status ${invalidModel.status}`); pass('uninstalled model is rejected');
       const oversized = await http('/api/approval', { method: 'POST', body: JSON.stringify({ id: 'x', decision: 'x', padding: 'a'.repeat(70000) }) });

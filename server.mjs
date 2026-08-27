@@ -237,12 +237,20 @@ const app = http.createServer(async (req, res) => {
     }
     if (url.pathname.startsWith('/api/tasks/') && req.method === 'GET') {
       const rest = url.pathname.slice('/api/tasks/'.length);
-      const [taskId, extra] = rest.split('/');
+      const [taskId, extra, tail] = rest.split('/');
       const task = await store.getTask(taskId);
       if (!task) return json(res, 404, { error: 'Task not found' });
+      if (extra === 'events' && !tail) {
+        const afterRaw = url.searchParams.get('after');
+        const afterSeq = afterRaw == null || afterRaw === '' ? 0 : Number(afterRaw);
+        if (!Number.isSafeInteger(afterSeq) || afterSeq < 0) return json(res, 400, { error: 'The event offset must be a non-negative integer.' });
+        const events = await store.listEvents({ taskId, afterSeq });
+        const nextSeq = events.length ? Number(events[events.length - 1].seq) : afterSeq;
+        return json(res, 200, { task, events, nextSeq });
+      }
       const events = await store.listEvents({ taskId });
-      if (extra === 'audit') return json(res, 200, { task, events, exportedAt: new Date().toISOString() });
-      if (extra) return json(res, 404, { error: 'Not found' });
+      if (extra === 'audit' && !tail) return json(res, 200, { task, events, exportedAt: new Date().toISOString() });
+      if (extra || tail) return json(res, 404, { error: 'Not found' });
       return json(res, 200, { task, events });
     }
     if (url.pathname === '/api/actions' && req.method === 'POST') {

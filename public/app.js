@@ -10,6 +10,11 @@ const skillSelect = document.querySelector('#skill');
 const botSelect = document.querySelector('#bot');
 let botProfiles = new Map();
 let modelName = '';
+let taskEventOffsets = new Map();
+let taskActivityNodes = new Map();
+let watchedTasks = [];
+let taskActivityTimer = null;
+let taskActivityBusy = false;
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -50,6 +55,47 @@ function renderAuditLink(message, taskId) {
   link.target = '_blank';
   link.rel = 'noopener';
   message.querySelector('div').append(link);
+}
+
+function describeTaskEvent(event) {
+  const type = String(event?.type || 'task activity').replaceAll('.', ' ');
+  const status = event?.payload?.status ? ` · ${event.payload.status}` : '';
+  return `${type}${status}`;
+}
+
+async function refreshTaskActivity() {
+  if (taskActivityBusy) return;
+  taskActivityBusy = true;
+  try {
+    const visible = watchedTasks.slice(-8);
+    await Promise.all(visible.map(async (taskItem) => {
+      const offset = taskEventOffsets.get(taskItem.id) || 0;
+      const response = await fetch(`/api/tasks/${encodeURIComponent(taskItem.id)}/events?after=${offset}`);
+      const data = await response.json();
+      if (!response.ok) return;
+      if (Array.isArray(data.events) && data.events.length) {
+        taskEventOffsets.set(taskItem.id, Number(data.nextSeq) || offset);
+        const node = taskActivityNodes.get(taskItem.id);
+        if (node) node.textContent = `Activity: ${describeTaskEvent(data.events[data.events.length - 1])}`;
+      }
+    }));
+  } catch {
+    // The next scheduled refresh will retry without interrupting the dashboard.
+  } finally {
+    taskActivityBusy = false;
+  }
+}
+
+function watchTaskActivity(tasks) {
+  watchedTasks = tasks;
+  if (taskActivityTimer) {
+    clearInterval(taskActivityTimer);
+    taskActivityTimer = null;
+  }
+  void refreshTaskActivity();
+  if (tasks.some((item) => ['pending', 'running', 'waiting_approval'].includes(String(item.status || '').toLowerCase()))) {
+    taskActivityTimer = setInterval(() => { void refreshTaskActivity(); }, 1500);
+  }
 }
 
 function renderMemories(memories) {
@@ -192,11 +238,14 @@ function renderState(state, taskResponse = {}) {
   const tasks = Array.isArray(taskResponse.tasks) ? taskResponse.tasks : [];
   const recent = document.querySelector('#recent-tasks');
   recent.replaceChildren();
+  taskActivityNodes = new Map();
   document.querySelector('#task-count').textContent = String(tasks.length);
   for (const taskItem of tasks.slice(-8).reverse()) {
     const card = element('div', 'health recent-task');
     const details = element('div');
-    details.append(element('b', '', taskItem.prompt || 'Untitled task'), element('small', '', taskItem.status || 'unknown'));
+    const activity = element('small', '', 'Activity: checking…');
+    details.append(element('b', '', taskItem.prompt || 'Untitled task'), element('small', '', taskItem.status || 'unknown'), activity);
+    taskActivityNodes.set(taskItem.id, activity);
     const audit = element('a', '', 'Audit');
     audit.href = `/api/tasks/${encodeURIComponent(taskItem.id)}/audit`;
     audit.target = '_blank';
@@ -230,6 +279,7 @@ function renderState(state, taskResponse = {}) {
   }
   renderBots(Array.isArray(state.bots) ? state.bots : []);
   renderRoutines(Array.isArray(state.routines) ? state.routines : []);
+  watchTaskActivity(tasks);
 }
 
 async function resumeTask(taskItem, button) {
