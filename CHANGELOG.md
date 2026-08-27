@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.8 — 2026-08-27
+
+Added restart-safe task recovery.
+
+- Resume tasks left in `running` state after a daemon or worker interruption through the API, CLI, or dashboard.
+- Preserve the original task identity, workspace, bot association, skill selection, and append-only event history during recovery.
+- Add a dashboard Resume control for pending, running, and paused tasks.
+- Expand release verification to 80 checks, including API, CLI, and dashboard recovery coverage.
+- Keep recovery bounded by the active resource profile and the existing approval, workspace, and audit controls.
+
 ## 0.3.7 — 2026-08-27
 
 Added durable named local bots.

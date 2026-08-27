@@ -252,7 +252,7 @@ const app = http.createServer(async (req, res) => {
       const taskId = url.pathname.slice('/api/tasks/'.length, -'/resume'.length);
       const task = await store.getTask(taskId);
       if (!task) return json(res, 404, { error: 'Task not found' });
-      if (!['pending', 'waiting_approval'].includes(task.status)) return json(res, 409, { error: `Task is not resumable from status "${task.status}".` });
+      if (!['pending', 'running', 'waiting_approval'].includes(task.status)) return json(res, 409, { error: `Task is not resumable from status "${task.status}".` });
       const payload = await body(req);
       const selected = await resolveAgentModel(payload.model);
       const result = await runAgentTask({ taskId, prompt: task.prompt, workspace: task.workspace, model: selected, maxTurns: payload.maxTurns, approvalId: payload.approvalId, skill: payload.skill || task.skill, botId: task.botId });

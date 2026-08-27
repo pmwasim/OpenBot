@@ -202,6 +202,11 @@ function renderState(state, taskResponse = {}) {
     audit.target = '_blank';
     audit.rel = 'noopener';
     card.append(details, audit);
+    if (['pending', 'running', 'paused'].includes(String(taskItem.status || '').toLowerCase())) {
+      const resume = element('button', 'text', 'Resume');
+      resume.addEventListener('click', () => resumeTask(taskItem, resume));
+      card.append(resume);
+    }
     recent.append(card);
   }
   const approvals = document.querySelector('#approvals');
@@ -225,6 +230,18 @@ function renderState(state, taskResponse = {}) {
   }
   renderBots(Array.isArray(state.bots) ? state.bots : []);
   renderRoutines(Array.isArray(state.routines) ? state.routines : []);
+}
+
+async function resumeTask(taskItem, button) {
+  button.disabled = true;
+  const response = await fetch(`/api/tasks/${encodeURIComponent(taskItem.id)}/resume`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ model: modelName || undefined })
+  });
+  const data = await response.json();
+  addMessage(response.ok ? 'bot' : 'error', 'OpenBot', data.reply || data.error || data.status || 'Task recovery finished.');
+  await load();
 }
 
 async function decide(approval, decision) {

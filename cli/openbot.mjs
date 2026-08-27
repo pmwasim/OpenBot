@@ -507,7 +507,20 @@ async function main() {
     return;
   }
 
-  if (command === 'pause' || command === 'cancel' || command === 'resume') {
+  if (command === 'resume') {
+    const id = positional[1];
+    if (!id) fail(Object.assign(new Error('Task id is required.'), { exitCode: 1 }));
+    const task = await store.getTask(id);
+    if (!task) fail(Object.assign(new Error('Task not found'), { exitCode: 1 }));
+    if (task.status === 'paused') await store.setTaskStatus(id, 'resume');
+    if (!['pending', 'running', 'waiting_approval', 'paused'].includes(task.status)) {
+      fail(Object.assign(new Error(`Cannot resume a task in status "${task.status}".`), { exitCode: 1 }));
+    }
+    await runAgent(store, config, { ...flags, taskId: id, workspace: task.workspace, bot: task.botId, skill: flags.skill || task.skill, json: asJson }, task.prompt);
+    return;
+  }
+
+  if (command === 'pause' || command === 'cancel') {
     const id = positional[1];
     if (!id) fail(Object.assign(new Error('Task id is required.'), { exitCode: 1 }));
     const task = await store.setTaskStatus(id, command);

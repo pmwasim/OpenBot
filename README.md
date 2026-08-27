@@ -8,6 +8,7 @@ OpenBot is a free, open-source, local-first bot that turns a task into bounded, 
 - Safe file reads/diffs, allowlisted shell diagnostics, and allowlisted loopback browser fetches through the existing policy/engine boundary; fetch-and-save requires approval.
 - File writes and consequential shell work stop for one-shot, action-bound approval; the loop never auto-approves.
 - Durable task/event history, recent-task dashboard cards, redacted audit export, CLI parity, action cards, and task audit links.
+- Interrupted tasks can be resumed from the CLI, API, or dashboard after the daemon is reopened, retaining the same task identity and event history.
 - Explicit workspace-scoped local memory managed from the dashboard, API, or CLI; only matching memory reaches the agent.
 - Operator-owned local skills managed from the dashboard, API, or CLI; skills are explicit, bounded guidance and cannot grant tools or bypass approvals.
 - Durable named local bots with a role, instructions, workspace, optional skill, and bounded conversation history managed from the dashboard, API, or CLI.
@@ -24,6 +25,7 @@ OPENBOT_RESOURCE_PROFILE=legacy node cli/openbot.mjs doctor --json
 node cli/openbot.mjs chat --workspace /path/to/project "Read notes.txt and summarize it" --json
 node cli/openbot.mjs bot add --name "Release steward" --role "Review local releases" --instructions "Check tests and report risks." --workspace /path/to/project --json
 node cli/openbot.mjs bot list --json
+node cli/openbot.mjs resume <task-id> --json
 node cli/openbot.mjs skill add --name release-check --instructions "Review tests and report release risks." --json
 node cli/openbot.mjs routine add --title "Workspace review" --schedule "daily 09:30" --workspace /path/to/project "Review the workspace and report risks." --json
 npm run release

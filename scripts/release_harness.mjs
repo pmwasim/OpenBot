@@ -87,7 +87,7 @@ async function main() {
   const indexSource = await readFile(join(root, 'public/index.html'), 'utf8');
   const appSource = await readFile(join(root, 'public/app.js'), 'utf8');
   if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"') || !indexSource.includes('id="recent-tasks"') || !indexSource.includes('id="memories"') || !indexSource.includes('id="memory-form"') || !indexSource.includes('id="skills"') || !indexSource.includes('id="skill-form"') || !indexSource.includes('id="routine-form"') || !indexSource.includes('id="routine-schedule"') || !indexSource.includes('id="bot"') || !indexSource.includes('id="bot-form"') || !indexSource.includes('id="bot-name"')) throw new Error('dashboard is missing workspace, bot, task history, memory, skill, or routine controls');
-  if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('/api/routines') || !appSource.includes('/api/bots') || !appSource.includes('Run now') || !appSource.includes('botId') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, resume, task history, memory, skills, routines, bots, and audit links');
+  if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/resume') || !appSource.includes('resumeTask') || !appSource.includes('Resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('/api/routines') || !appSource.includes('/api/bots') || !appSource.includes('Run now') || !appSource.includes('botId') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, recovery, task history, memory, skills, routines, bots, and audit links');
   if (appSource.includes('e.innerHTML=`')) throw new Error('dashboard renders state with unsafe innerHTML');
   pass('dashboard exposes workspace, action cards, and audit links safely');
   const publicSurfaceFiles = ['README.md', 'PRD.md', 'SECURITY.md', 'CHANGELOG.md', 'cli/openbot.mjs', 'server.mjs', 'lib/config.mjs', 'lib/provider.mjs', 'lib/agent.mjs', 'lib/store.mjs', 'public/index.html', 'public/app.js', 'public/styles.css'];
@@ -388,7 +388,8 @@ async function main() {
           JSON.stringify({ reply: 'The approved change is complete.' }),
           'not-json',
           JSON.stringify({ reply: 'The skill is loaded.' }),
-          JSON.stringify({ reply: 'The routine completed.' })
+          JSON.stringify({ reply: 'The routine completed.' }),
+          JSON.stringify({ reply: 'The interrupted task is complete.' })
         ])
       },
       stdio: ['ignore', 'pipe', 'pipe']
@@ -485,6 +486,12 @@ async function main() {
       const routinePaused = await http(`/api/routines/${encodeURIComponent(routineCreateBody.routine.id)}`, { method: 'PATCH', body: JSON.stringify({ enabled: false }) });
       if (routinePaused.status !== 200 || routinePaused.body.includes('"enabled":true')) throw new Error(`routine pause ${routinePaused.status} ${routinePaused.body}`);
       pass('routine Run now uses the normal agent loop and pause is durable');
+      const staleTask = await first.createTask({ prompt: 'Recover after restart.', workspace: agentWs });
+      await first.append({ type: 'task.status', taskId: staleTask.task.id, payload: { status: 'running' } });
+      const recovered = await http(`/api/tasks/${encodeURIComponent(staleTask.task.id)}/resume`, { method: 'POST', body: JSON.stringify({ model: 'fixture' }) });
+      const recoveredBody = JSON.parse(recovered.body);
+      if (recovered.status !== 200 || recoveredBody.status !== 'completed' || recoveredBody.taskId !== staleTask.task.id) throw new Error(`restart recovery ${recovered.status} ${recovered.body}`);
+      pass('interrupted running tasks resume after daemon restart without changing task identity');
       const invalidModel = await http('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'test', model: '__not_installed__' }) });
       if (![400, 503].includes(invalidModel.status)) throw new Error(`status ${invalidModel.status}`); pass('uninstalled model is rejected');
       const oversized = await http('/api/approval', { method: 'POST', body: JSON.stringify({ id: 'x', decision: 'x', padding: 'a'.repeat(70000) }) });
@@ -656,6 +663,18 @@ async function main() {
       throw new Error(`CLI agent: ${cliAgent.output}`);
     }
     pass('CLI chat runs the bounded local agent loop');
+
+    const cliStaleTask = await first.createTask({ prompt: 'Resume this CLI task.', workspace: fileWs });
+    await first.append({ type: 'task.status', taskId: cliStaleTask.task.id, payload: { status: 'running' } });
+    const cliResume = await runNode(['cli/openbot.mjs', 'resume', cliStaleTask.task.id, '--json'], {
+      ...cliEnv,
+      OPENBOT_TEST_AGENT_RESPONSES: JSON.stringify([JSON.stringify({ reply: 'The CLI task is complete.' })])
+    }, { timeoutMs: 20000 });
+    const cliResumeJson = parseCliJson(cliResume.output);
+    if (cliResume.code !== 0 || cliResumeJson.taskId !== cliStaleTask.task.id || cliResumeJson.status !== 'completed') {
+      throw new Error(`CLI resume: ${cliResume.output}`);
+    }
+    pass('CLI resumes an interrupted running task with the same task identity');
 
     const cliPropose = await runNode([
       'cli/openbot.mjs', 'act', '--workspace', fileWs, '--tool', 'file.write',
