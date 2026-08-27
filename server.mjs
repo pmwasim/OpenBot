@@ -207,6 +207,16 @@ function json(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+function downloadJson(res, filename, body) {
+  res.writeHead(200, {
+    'content-type': 'application/json; charset=utf-8',
+    'content-disposition': `attachment; filename="${filename}"`,
+    'cache-control': 'no-store',
+    'x-content-type-options': 'nosniff'
+  });
+  res.end(JSON.stringify(body));
+}
+
 const terminalTaskStatuses = new Set(['completed', 'failed', 'cancelled']);
 
 function writeSse(res, event, data) {
@@ -419,6 +429,13 @@ const app = http.createServer(async (req, res) => {
       const afterSeq = afterRaw == null || afterRaw === '' ? 0 : Number(afterRaw);
       if (!Number.isSafeInteger(afterSeq) || afterSeq < 0) return json(res, 400, { error: 'The event offset must be a non-negative integer.' });
       return streamTaskEvents(req, res, task, afterSeq);
+    }
+    if (url.pathname.startsWith('/api/tasks/') && url.pathname.endsWith('/export') && req.method === 'GET') {
+      const taskId = decodeURIComponent(url.pathname.slice('/api/tasks/'.length, -'/export'.length));
+      const task = await store.getTask(taskId);
+      if (!task) return json(res, 404, { error: 'Task not found' });
+      const events = await store.listEvents({ taskId });
+      return downloadJson(res, 'openbot-task-audit.json', { task, events, exportedAt: new Date().toISOString() });
     }
     if (url.pathname.startsWith('/api/tasks/') && req.method === 'GET') {
       const rest = url.pathname.slice('/api/tasks/'.length);

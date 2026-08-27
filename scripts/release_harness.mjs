@@ -108,9 +108,9 @@ async function main() {
   const cliSource = await readFile(join(root, 'cli/openbot.mjs'), 'utf8');
   const clientSource = await readFile(join(root, 'lib/client.mjs'), 'utf8');
   if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"') || !indexSource.includes('id="recent-tasks"') || !indexSource.includes('id="memories"') || !indexSource.includes('id="memory-form"') || !indexSource.includes('id="skills"') || !indexSource.includes('id="skill-form"') || !indexSource.includes('id="routine-form"') || !indexSource.includes('id="routine-schedule"') || !indexSource.includes('id="bot"') || !indexSource.includes('id="bot-form"') || !indexSource.includes('id="bot-name"') || !indexSource.includes('id="provider"') || !indexSource.includes('id="model"')) throw new Error('dashboard is missing workspace, provider, model, bot, task history, memory, skill, or routine controls');
-  if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/resume') || !appSource.includes('resumeTask') || !appSource.includes('Resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/tasks/') || !appSource.includes('after=') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('/api/routines') || !appSource.includes('/api/bots') || !appSource.includes('Run now') || !appSource.includes('botId') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, recovery, task history, live activity, memory, skills, routines, bots, and audit links');
+  if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/export') || !appSource.includes('Download audit') || !appSource.includes('/resume') || !appSource.includes('resumeTask') || !appSource.includes('Resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/tasks/') || !appSource.includes('after=') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('/api/routines') || !appSource.includes('/api/bots') || !appSource.includes('Run now') || !appSource.includes('botId') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, recovery, task history, live activity, memory, skills, routines, bots, and downloadable audit artifacts');
   if (appSource.includes('e.innerHTML=`')) throw new Error('dashboard renders state with unsafe innerHTML');
-  pass('dashboard exposes workspace, action cards, and audit links safely');
+  pass('dashboard exposes workspace, action cards, audit links, and downloadable task artifacts safely');
   if (!appSource.includes('editMemory') || !appSource.includes('editSkill') || !appSource.includes('editBot') || !appSource.includes("method: 'PATCH'") || !appSource.includes('Cancel') || !appSource.includes('Edit')) throw new Error('dashboard does not expose safe editing for bots, skills, and memory');
   pass('dashboard exposes safe editing for bots, skills, and workspace memory');
   if (!appSource.includes('controlTask') || !appSource.includes('/control') || !appSource.includes('Pause') || !appSource.includes('Cancel task')) throw new Error('dashboard does not expose bounded task pause and cancel controls');
@@ -132,6 +132,8 @@ async function main() {
   if (!appSource.includes('/api/config') || !appSource.includes('settingsButton') || !appSource.includes('showSettings')) throw new Error('dashboard does not expose effective settings');
   if (!serverSource.includes("url.pathname === '/api/config'") || !serverSource.includes('publicConfig')) throw new Error('daemon does not expose safe public configuration');
   pass('dashboard exposes safe effective settings');
+  if (!serverSource.includes("url.pathname.endsWith('/export')") || !serverSource.includes('content-disposition') || !serverSource.includes('openbot-task-audit.json')) throw new Error('server does not expose a downloadable bounded task audit artifact');
+  pass('server exposes a downloadable bounded task audit artifact');
   const publicSurfaceFiles = ['README.md', 'PRD.md', 'SECURITY.md', 'CHANGELOG.md', 'cli/openbot.mjs', 'server.mjs', 'lib/config.mjs', 'lib/provider.mjs', 'lib/daemon.mjs', 'lib/client.mjs', 'lib/agent.mjs', 'lib/store.mjs', 'public/index.html', 'public/app.js', 'public/styles.css'];
   const forbiddenPublicBrand = /\b(?:Grok|Ollama|OpenAI|Anthropic|Gemini|Claude|Cursor|Groq)\b|x\.ai/i;
   for (const file of publicSurfaceFiles) {
@@ -607,6 +609,10 @@ async function main() {
       }
       if (asyncAfter.task?.status !== 'completed' || asyncAfter.task.result !== 'The asynchronous task completed.') throw new Error(`async task result ${JSON.stringify(asyncAfter)}`);
       pass('asynchronous task execution returns immediately and persists the final result');
+      const exportedTask = await http(`/api/tasks/${encodeURIComponent(asyncCreateBody.task.id)}/export`);
+      const exportedBody = JSON.parse(exportedTask.body);
+      if (exportedTask.status !== 200 || !String(exportedTask.headers['content-type']).includes('application/json') || !String(exportedTask.headers['content-disposition']).includes('attachment') || !String(exportedTask.headers['content-disposition']).includes('openbot-task-audit.json') || exportedBody.task?.id !== asyncCreateBody.task.id || !Array.isArray(exportedBody.events) || !exportedBody.exportedAt) throw new Error(`task export ${exportedTask.status} ${exportedTask.body}`);
+      pass('completed task results can be downloaded as bounded audit artifacts');
       const asyncStream = await streamOn(port, `/api/tasks/${encodeURIComponent(asyncCreateBody.task.id)}/events/stream?after=0`);
       if (asyncStream.status !== 200 || !String(asyncStream.headers['content-type']).includes('text/event-stream') || !asyncStream.body.includes('event: ready') || !asyncStream.body.includes('event: task') || !asyncStream.body.includes('The asynchronous task completed.')) throw new Error(`async task stream ${asyncStream.status} ${asyncStream.body}`);
       pass('task event stream replays durable activity and closes at completion');

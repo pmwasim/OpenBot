@@ -545,7 +545,11 @@ function renderState(state, taskResponse = {}) {
     audit.href = `/api/tasks/${encodeURIComponent(taskItem.id)}/audit`;
     audit.target = '_blank';
     audit.rel = 'noopener';
-    card.append(details, audit);
+    const download = element('a', '', 'Download audit');
+    download.href = `/api/tasks/${encodeURIComponent(taskItem.id)}/export`;
+    download.download = 'openbot-task-audit.json';
+    download.rel = 'noopener';
+    card.append(details, audit, download);
     const taskStatus = String(taskItem.status || '').toLowerCase();
     if (['pending', 'running', 'paused'].includes(taskStatus)) {
       const resume = element('button', 'text', 'Resume');
