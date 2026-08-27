@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.23 — 2026-08-27
+
+Added portable task-result delivery from the dashboard.
+
+- Expose `GET /api/tasks/:id/export` as a no-cache JSON download containing only the requested task and its redacted event history.
+- Add a dashboard Download audit action alongside the existing read-only audit view.
+- Keep the artifact bounded to durable local task data, use a fixed safe filename, and preserve zero mandatory spend, approval/workspace boundaries, old-laptop portability, and brand-neutral public surfaces.
+
 ## 0.4.22 — 2026-08-27
 
 Added a safe read-only effective-settings view to the dashboard.

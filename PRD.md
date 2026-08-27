@@ -80,9 +80,9 @@ OpenBot should provide a practical middle path: real work through isolated worke
 - Approval records are attached to proposed actions and diffs, and the dashboard resumes the same task after an operator approves it.
 - Local routines can be created, scheduled, run immediately, paused, and audited with a bounded recent-run history.
 - No multi-user authorization, CSRF protection, or rate limiting exists; explicit non-loopback mode now requires a shared bearer token.
-- Provider credentials, OAuth, model routing, MCP, plugins, collaboration, and audit replay are absent or incomplete; local declarative skills and bounded routines are now supported.
+- OAuth, MCP, plugins, collaboration, and full audit replay remain absent or incomplete; compatible provider routing, local declarative skills, and bounded routines are now supported.
 - State uses an append-only JSONL event log with a lock and legacy migration path; retention, multi-process recovery policy, and encrypted-at-rest storage remain future work.
-- The HTTP server is suitable for a local prototype only; it must not be exposed to a LAN or internet before hardening.
+- The HTTP server remains intended for local operation; explicitly enabled LAN mode requires a shared bearer token, and public-internet exposure is outside the supported boundary.
 - CPU-only legacy mode is supported for core administration and allowlisted diagnostics; natural-language reasoning still depends on an installed local model and may be too slow for some older laptops.
 
 ### Current real-work slice
@@ -101,6 +101,7 @@ The first meaningful “bot, not control panel” milestone is implemented on th
 - Operators can opt into a generic compatible remote provider for a task; the daemon discovers its models, routes structured requests, records the selected provider, and keeps that path disabled in local-only mode by default.
 - Operators can explicitly enable lightweight browser notifications for dashboard tasks started in the current session; completion, failure, and cancellation notifications are optional and degrade safely when unsupported.
 - Operators can inspect redacted effective daemon, provider, privacy, resource, and agent-limit settings from the dashboard; changes remain environment-configured and restart-controlled.
+- Operators can open or download a fixed-name JSON task artifact from each recent-task card; the artifact contains only that task's bounded record and redacted durable event history.
 - Operators can save, list, and delete workspace-scoped local memory; only matching memory is injected into agent context after redaction.
 - Operators can save, list, select, and delete local skills; selected skills are redacted, bounded, audited, and injected only as untrusted guidance under the OpenBot policy.
 - Operators can create, list, pause, enable, run, and audit local routines. The in-process scheduler uses one lightweight timer, caps routines at 50 and run history at 20 per routine, and never auto-approves consequential actions.

@@ -7,7 +7,7 @@ OpenBot is a free, open-source, local-first bot that turns a task into bounded, 
 - Structured local agent loop: a local model returns either a final reply or one validated tool action at a time.
 - Safe file reads/diffs, allowlisted shell diagnostics, and allowlisted loopback browser fetches through the existing policy/engine boundary; fetch-and-save requires approval.
 - File writes and consequential shell work stop for one-shot, action-bound approval; the loop never auto-approves.
-- Durable task/event history, recent-task dashboard cards, redacted audit export, CLI parity, action cards, and task audit links.
+- Durable task/event history, recent-task dashboard cards, redacted audit viewing and downloadable task artifacts, CLI parity, and action cards.
 - Interrupted tasks can be resumed from the CLI, API, or dashboard after the daemon is reopened, retaining the same task identity and event history.
 - Explicit workspace-scoped local memory managed from the dashboard, API, or CLI; only matching memory reaches the agent.
 - Workspace-scoped memory facts can be edited in place from the dashboard or CLI without changing their scope or durable identity.
@@ -31,6 +31,7 @@ OpenBot is a free, open-source, local-first bot that turns a task into bounded, 
 - Optional compatible provider choice: when explicitly enabled, the dashboard and CLI can use a generic `/v1/models` and `/v1/chat/completions` endpoint per task; local-only mode remains the default and external provider costs are never required.
 - Optional dashboard completion notifications: an operator can grant browser permission and receive a notification when a task started in the current dashboard session completes, fails, or is cancelled; unsupported or denied browsers degrade safely.
 - Effective settings view: the dashboard Settings control shows redacted daemon, provider, privacy, resource, and agent-limit configuration without exposing credentials or modifying files.
+- Downloadable task artifacts: each recent-task card can open the read-only audit view or download a fixed-name JSON bundle containing that task's bounded record and redacted event history.
 - Daemon-routed CLI task management: `list`, `show`, `logs`, `approve`, and `reject` can inspect or change server-owned task state without a second local store.
 - Daemon-routed task control: `pause`, `resume`, and `cancel` can control server-owned work while preserving durable status transitions and the bounded agent loop.
 - Daemon-routed administration: `memory`, `skill`, `bot`, and `routine` commands can manage server-owned state without a second local store; named-bot chat and routine Run now use the shared daemon loop.
