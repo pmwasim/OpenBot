@@ -145,12 +145,43 @@ async function main() {
   if (!createProviderHub({ OPENBOT_LOCAL_ONLY: '0', OPENBOT_MODEL_URL: 'http://example.com:11434' }).localModel.baseUrl.includes('example.com')) throw new Error('explicit remote model opt-in');
   pass('provider hub defaults to the local model and redacts secrets');
 
+  const protocolFixture = createServer(async (req, res) => {
+    if (req.url === '/v1/models') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ data: [{ id: 'small-local' }] }));
+      return;
+    }
+    if (req.url === '/v1/chat/completions') {
+      let requestBody = '';
+      for await (const chunk of req) requestBody += chunk;
+      const parsed = JSON.parse(requestBody);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ reply: `protocol:${parsed.model}` }) } }] }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  await listen(protocolFixture);
+  try {
+    const protocolPort = protocolFixture.address().port;
+    const protocolHub = createProviderHub({ OPENBOT_MODEL_PROTOCOL: 'chat-completions', OPENBOT_MODEL_URL: `http://127.0.0.1:${protocolPort}` });
+    const protocolTags = await protocolHub.localModel.tags();
+    const protocolReply = await protocolHub.localModel.chatStructured({ model: 'small-local', messages: [{ role: 'user', content: 'test' }], tools: [] });
+    if (protocolHub.localModel.protocol !== 'chat-completions' || !protocolTags.models.includes('small-local') || !protocolReply.ok || !protocolReply.reply.includes('protocol:small-local')) throw new Error('chat-completions protocol adapter');
+  } finally {
+    await closeServer(protocolFixture);
+  }
+  pass('chat-completions local model protocol works without changing the default');
+
   const { loadConfig, publicConfig } = await import(pathToFileURL(join(root, 'lib/config.mjs')).href);
   const legacyConfig = loadConfig({ OPENBOT_RESOURCE_PROFILE: 'legacy' });
   if (legacyConfig.resourceProfile !== 'legacy' || legacyConfig.agentMaxTurns !== 3 || legacyConfig.agentMaxActions !== 3 || legacyConfig.isolation !== 'cwd') {
     throw new Error(`legacy profile defaults ${JSON.stringify(legacyConfig)}`);
   }
   if (publicConfig(legacyConfig).resourceProfile !== 'legacy') throw new Error('legacy profile is not public');
+  const protocolConfig = loadConfig({ OPENBOT_MODEL_PROTOCOL: 'chat-completions' });
+  if (protocolConfig.modelProtocol !== 'chat-completions' || publicConfig(protocolConfig).modelProtocol !== 'chat-completions') throw new Error('model protocol configuration');
   pass('legacy resource profile caps agent work for older CPU-only laptops');
 
   const { parseAgentEnvelope, createAgentController } = await import(pathToFileURL(join(root, 'lib/agent.mjs')).href);

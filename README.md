@@ -34,6 +34,8 @@ npm start
 
 `doctor --json` reports the active resource profile, agent caps, and whether container isolation is expected. Use `OPENBOT_RESOURCE_PROFILE=legacy` on older CPU-only laptops.
 
+The default local model protocol is `native` (`/api/tags` and `/api/chat`). To connect a lightweight local runtime that exposes the common chat-completions shape, set `OPENBOT_MODEL_PROTOCOL=chat-completions`; OpenBot will use `/v1/models` and `/v1/chat/completions` while keeping local-only endpoint checks enabled.
+
 Natural-language tasks require a locally installed model runtime. Core administration and bounded workers remain usable without a model. The legacy profile is a portability mode, not an unrestricted shell sandbox: only policy-allowlisted diagnostics may run directly on the host when container isolation is unavailable.
 
 ## Product boundary

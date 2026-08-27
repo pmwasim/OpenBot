@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.9 — 2026-08-27
+
+Added opt-in local model protocol compatibility.
+
+- Support local runtimes exposing `/v1/models` and `/v1/chat/completions` through `OPENBOT_MODEL_PROTOCOL=chat-completions`.
+- Preserve the existing native local protocol as the default and retain loopback-only checks in local-only mode.
+- Normalize model listings and reply formats across both protocols, including structured agent replies.
+- Document the configuration and expand the release harness with a live protocol adapter fixture and configuration checks.
+
 ## 0.3.8 — 2026-08-27
 
 Added restart-safe task recovery.

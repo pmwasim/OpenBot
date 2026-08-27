@@ -34,7 +34,7 @@ if (bind.overridden && !process.env.OPENBOT_AUTH_TOKEN) {
 if (bind.overridden) console.warn(`WARNING: HOST=${config.host} is not loopback. Every request requires Authorization: Bearer <OPENBOT_AUTH_TOKEN>.`);
 
 const store = await openStore({ dataDir: config.dataDir });
-const providers = createProviderHub(process.env, { modelUrl: config.modelUrl, remoteBaseUrl: config.remoteBaseUrl });
+const providers = createProviderHub(process.env, { modelUrl: config.modelUrl, modelProtocol: config.modelProtocol, remoteBaseUrl: config.remoteBaseUrl });
 const localModel = providers.localModel;
 
 function fixtureAgentProvider(raw) {

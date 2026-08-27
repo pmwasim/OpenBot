@@ -94,6 +94,7 @@ The first meaningful “bot, not control panel” milestone is implemented on th
 - The release harness covers the current release checks, including malformed model output, approval stop, low-resource execution, CLI/API flows, task history, memory, named bots, skills, routines, UI safety, public brand-neutrality, workspace containment, symlink escape rejection, LAN authentication, and audit redaction.
 - The dashboard shows recent durable tasks with audit links, and `doctor --json` explains the low-resource profile without requiring a model.
 - Interrupted tasks left in `running` state can be resumed through the API, CLI, or dashboard without changing their task identity or losing their event history.
+- Operators can select the default native local model protocol or an opt-in chat-completions-compatible local protocol without changing application code; local-only endpoint checks remain enforced.
 - Operators can save, list, and delete workspace-scoped local memory; only matching memory is injected into agent context after redaction.
 - Operators can save, list, select, and delete local skills; selected skills are redacted, bounded, audited, and injected only as untrusted guidance under the OpenBot policy.
 - Operators can create, list, pause, enable, run, and audit local routines. The in-process scheduler uses one lightweight timer, caps routines at 50 and run history at 20 per routine, and never auto-approves consequential actions.

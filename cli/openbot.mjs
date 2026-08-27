@@ -204,7 +204,7 @@ async function runAgent(store, config, flags, prompt, options = {}) {
   if (!workspace || workspace === 'local') fail(Object.assign(new Error('Workspace is required (--workspace) or provided by the bot.'), { exitCode: 1 }));
 
   const fixture = Boolean(process.env.OPENBOT_TEST_AGENT_RESPONSES);
-  const hub = createProviderHub(process.env, { modelUrl: config.modelUrl, remoteBaseUrl: config.remoteBaseUrl });
+  const hub = createProviderHub(process.env, { modelUrl: config.modelUrl, modelProtocol: config.modelProtocol, remoteBaseUrl: config.remoteBaseUrl });
   let model = flags.model || '';
   let provider = hub.localModel;
   if (fixture) {
@@ -295,7 +295,7 @@ async function main() {
       checks.push({ name: 'loopback', ok: false, error: error.message, loopback: isLoopbackHost(config.host) });
     }
     try {
-      const hub = createProviderHub(process.env, { modelUrl: config.modelUrl, remoteBaseUrl: config.remoteBaseUrl });
+      const hub = createProviderHub(process.env, { modelUrl: config.modelUrl, modelProtocol: config.modelProtocol, remoteBaseUrl: config.remoteBaseUrl });
       const tags = await hub.localModel.tags();
       checks.push({ name: 'local-model', ok: Boolean(tags.ok), models: tags.models || [], url: config.modelUrl });
     } catch (error) {
