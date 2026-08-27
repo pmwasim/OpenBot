@@ -219,6 +219,10 @@ const app = http.createServer(async (req, res) => {
       const id = url.pathname.slice('/api/memories/'.length);
       return json(res, 200, await store.deleteMemory(id));
     }
+    if (url.pathname.startsWith('/api/memories/') && req.method === 'PATCH') {
+      const id = decodeURIComponent(url.pathname.slice('/api/memories/'.length));
+      return json(res, 200, await store.updateMemory(id, await body(req)));
+    }
     if (url.pathname === '/api/skills' && req.method === 'GET') {
       return json(res, 200, { skills: await store.listSkills() });
     }

@@ -14,7 +14,7 @@ import { launchDesktop } from '../lib/desktop.mjs';
 import { installService, serviceInfo, uninstallService } from '../lib/service.mjs';
 import {
   daemonBot, daemonBots, daemonChat, daemonControlTask, daemonCreateBot, daemonCreateMemory, daemonCreateRoutine, daemonCreateSkill, daemonUpdateBot,
-  daemonDecideApproval, daemonDeleteBot, daemonDeleteMemory, daemonDeleteSkill, daemonList, daemonLogs, daemonMemories, daemonResume,
+  daemonDecideApproval, daemonDeleteBot, daemonDeleteMemory, daemonDeleteSkill, daemonList, daemonLogs, daemonMemories, daemonResume, daemonUpdateMemory,
   daemonRoutine, daemonRoutines, daemonRunRoutine, daemonShow, daemonSkill, daemonSkills, daemonState, daemonUpdateRoutine, daemonUpdateSkill
 } from '../lib/client.mjs';
 
@@ -47,6 +47,7 @@ Commands:
   config             Show local configuration
   memory list        List workspace-scoped local memory
   memory add         Save an operator-approved memory fact
+  memory update <id> Update a local memory fact
   memory delete      Delete a local memory fact
   bot list           List named local bots
   bot add            Create a named local bot
@@ -456,13 +457,24 @@ async function main() {
       print(created, true);
       return;
     }
+    if (subcommand === 'update') {
+      const id = positional[2];
+      if (!id) fail(Object.assign(new Error('Memory id is required.'), { exitCode: 1 }));
+      const patch = {};
+      for (const field of ['key', 'value']) {
+        if (flags[field] !== undefined) patch[field] = flags[field];
+      }
+      if (!Object.keys(patch).length) fail(Object.assign(new Error('Provide at least one memory field to update.'), { exitCode: 1 }));
+      print(flags.daemon ? await daemonUpdateMemory(config, id, patch) : await store.updateMemory(id, patch), true);
+      return;
+    }
     if (subcommand === 'delete') {
       const id = positional[2];
       if (!id) fail(Object.assign(new Error('Memory id is required.'), { exitCode: 1 }));
       print(flags.daemon ? await daemonDeleteMemory(config, id) : await store.deleteMemory(id), true);
       return;
     }
-    fail(Object.assign(new Error('Use memory list, memory add, or memory delete.'), { exitCode: 1 }));
+    fail(Object.assign(new Error('Use memory list, memory add, memory update, or memory delete.'), { exitCode: 1 }));
   }
 
   if (command === 'bot') {

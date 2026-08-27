@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.10 — 2026-08-27
+
+Added workspace-memory editing parity.
+
+- Update a local memory fact's key or value with `memory update <id>`.
+- Support direct-local and shared-daemon updates through the existing bounded validation and redaction paths.
+- Preserve the memory's durable identity and originating workspace scope during edits.
+- Expand release verification to cover store, API, local CLI, and daemon-routed memory updates.
+
 ## 0.4.9 — 2026-08-27
 
 Added reusable skill update parity.

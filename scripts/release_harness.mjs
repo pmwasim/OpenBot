@@ -313,6 +313,8 @@ async function main() {
     if (!savedMemory.memory?.id || savedMemory.memory.value.includes('sk-memory-secret')) throw new Error('memory redaction or creation');
     const listedMemory = await freshStore.listMemories({ workspace: '/tmp/agent-harness' });
     if (listedMemory.length !== 1 || listedMemory[0].key !== 'secret_note') throw new Error('memory listing');
+    const updatedMemory = await freshStore.updateMemory(savedMemory.memory.id, { key: 'updated_note', value: 'updated token=sk-memory-updated' });
+    if (updatedMemory.memory?.id !== savedMemory.memory.id || updatedMemory.memory.key !== 'updated_note' || updatedMemory.memory.value.includes('sk-memory-updated')) throw new Error('memory update');
     await freshStore.deleteMemory(savedMemory.memory.id);
     if ((await freshStore.listMemories({ workspace: '/tmp/agent-harness' })).length !== 0) throw new Error('memory deletion');
     pass('local memory is durable, scoped, redacted, and removable');
@@ -384,11 +386,15 @@ async function main() {
     if (cliFail.code === 0) throw new Error('show missing should fail');
     pass('CLI run persists a task and fails on missing show');
     const cliMemoryAdd = await runNode(['cli/openbot.mjs', 'memory', 'add', '--workspace', fileWs, '--key', 'tone', '--value', 'Concise'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
-    if (cliMemoryAdd.code !== 0) throw new Error(`CLI memory add: ${cliMemoryAdd.output}`);
+    const cliMemoryAddJson = parseCliJson(cliMemoryAdd.output);
+    if (cliMemoryAdd.code !== 0 || !cliMemoryAddJson.memory?.id) throw new Error(`CLI memory add: ${cliMemoryAdd.output}`);
+    const cliMemoryUpdate = await runNode(['cli/openbot.mjs', 'memory', 'update', cliMemoryAddJson.memory.id, '--key', 'preferred_tone', '--value', 'Concise and clear', '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
+    const cliMemoryUpdateJson = parseCliJson(cliMemoryUpdate.output);
+    if (cliMemoryUpdate.code !== 0 || cliMemoryUpdateJson.memory?.key !== 'preferred_tone') throw new Error(`CLI memory update: ${cliMemoryUpdate.output}`);
     const cliMemoryList = await runNode(['cli/openbot.mjs', 'memory', 'list', '--workspace', fileWs, '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
     const cliMemoryListJson = parseCliJson(cliMemoryList.output);
-    if (cliMemoryList.code !== 0 || !cliMemoryListJson.memories?.some((memory) => memory.key === 'tone')) throw new Error(`CLI memory list: ${cliMemoryList.output}`);
-    const cliMemoryId = cliMemoryListJson.memories.find((memory) => memory.key === 'tone').id;
+    if (cliMemoryList.code !== 0 || !cliMemoryListJson.memories?.some((memory) => memory.key === 'preferred_tone' && memory.value === 'Concise and clear')) throw new Error(`CLI memory list: ${cliMemoryList.output}`);
+    const cliMemoryId = cliMemoryListJson.memories.find((memory) => memory.key === 'preferred_tone').id;
     const cliMemoryDelete = await runNode(['cli/openbot.mjs', 'memory', 'delete', cliMemoryId, '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
     if (cliMemoryDelete.code !== 0) throw new Error(`CLI memory delete: ${cliMemoryDelete.output}`);
     pass('CLI memory add/list/delete manages operator-owned facts');
@@ -528,6 +534,9 @@ async function main() {
       const memoryList = await http(`/api/memories?workspace=${encodeURIComponent(agentWs)}`);
       const memoryListBody = JSON.parse(memoryList.body);
       if (memoryList.status !== 200 || memoryListBody.memories?.[0]?.key !== 'response_style') throw new Error(`memory list ${memoryList.status} ${memoryList.body}`);
+      const memoryUpdate = await http(`/api/memories/${encodeURIComponent(memoryCreateBody.memory.id)}`, { method: 'PATCH', body: JSON.stringify({ key: 'updated_style', value: 'Use concise, clear bullets.' }) });
+      const memoryUpdateBody = JSON.parse(memoryUpdate.body);
+      if (memoryUpdate.status !== 200 || memoryUpdateBody.memory?.key !== 'updated_style') throw new Error(`memory update ${memoryUpdate.status} ${memoryUpdate.body}`);
       const memoryDelete = await http(`/api/memories/${encodeURIComponent(memoryCreateBody.memory.id)}`, { method: 'DELETE' });
       if (memoryDelete.status !== 200) throw new Error(`memory delete ${memoryDelete.status} ${memoryDelete.body}`);
       pass('memory API creates, lists, scopes, and deletes local facts');
@@ -637,6 +646,9 @@ async function main() {
       const daemonMemoryAdd = await runNode(['cli/openbot.mjs', 'memory', 'add', '--daemon', '--workspace', agentWs, '--key', 'shared-note', '--value', 'Configured on the daemon.', '--json'], isolatedDaemonEnv);
       const daemonMemoryAddJson = parseCliJson(daemonMemoryAdd.output);
       if (daemonMemoryAdd.code !== 0 || !daemonMemoryAddJson.memory?.id) throw new Error(`daemon memory add: ${daemonMemoryAdd.output}`);
+      const daemonMemoryUpdate = await runNode(['cli/openbot.mjs', 'memory', 'update', daemonMemoryAddJson.memory.id, '--daemon', '--key', 'shared_updated', '--value', 'Updated on the daemon.', '--json'], isolatedDaemonEnv);
+      const daemonMemoryUpdateJson = parseCliJson(daemonMemoryUpdate.output);
+      if (daemonMemoryUpdate.code !== 0 || daemonMemoryUpdateJson.memory?.key !== 'shared_updated') throw new Error(`daemon memory update: ${daemonMemoryUpdate.output}`);
       const daemonMemoryList = await runNode(['cli/openbot.mjs', 'memory', 'list', '--daemon', '--workspace', agentWs, '--json'], isolatedDaemonEnv);
       const daemonMemoryListJson = parseCliJson(daemonMemoryList.output);
       if (daemonMemoryList.code !== 0 || !daemonMemoryListJson.memories?.some((item) => item.id === daemonMemoryAddJson.memory.id)) throw new Error(`daemon memory list: ${daemonMemoryList.output}`);
