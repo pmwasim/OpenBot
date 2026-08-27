@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.19 — 2026-08-27
+
+Added explicit per-task local model selection in the dashboard.
+
+- Populate the model selector from the daemon's health response and preserve the operator's choice across refreshes.
+- Send the selected model for new tasks, resumed tasks, and approval continuations; the server remains authoritative for availability and local-only policy.
+- Keep the first installed local model as the automatic fallback and add release coverage for the dashboard contract.
+- Preserve zero mandatory spend, local-first defaults, bounded work, and brand-neutral public surfaces.
+
 ## 0.4.18 — 2026-08-27
 
 Added low-overhead live task activity streaming.

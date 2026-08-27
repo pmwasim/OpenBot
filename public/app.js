@@ -8,6 +8,7 @@ const routineForm = document.querySelector('#routine-form');
 const botForm = document.querySelector('#bot-form');
 const skillSelect = document.querySelector('#skill');
 const botSelect = document.querySelector('#bot');
+const modelSelect = document.querySelector('#model');
 let botProfiles = new Map();
 let modelName = '';
 let taskEventOffsets = new Map();
@@ -64,6 +65,21 @@ function describeTaskEvent(event) {
   const type = String(event?.type || 'task activity').replaceAll('.', ' ');
   const status = event?.payload?.status ? ` · ${event.payload.status}` : '';
   return `${type}${status}`;
+}
+
+function renderModels(models) {
+  const selected = modelSelect.value;
+  modelSelect.replaceChildren();
+  const automatic = element('option', '', models.length ? `Use the first available local model (${models[0]})` : 'No local model available');
+  automatic.value = '';
+  modelSelect.append(automatic);
+  for (const model of models) {
+    const option = element('option', '', model);
+    option.value = model;
+    modelSelect.append(option);
+  }
+  modelSelect.disabled = models.length === 0;
+  if (models.includes(selected)) modelSelect.value = selected;
 }
 
 function updateTaskMessage(taskItem) {
@@ -381,12 +397,14 @@ async function load() {
     fetch('/api/tasks').then((response) => response.json())
   ]);
   const dot = document.querySelector('#health-dot');
-  modelName = health.models?.[0] || '';
+  const models = Array.isArray(health.models) ? health.models.map((model) => String(model)).filter(Boolean) : [];
+  modelName = models[0] || '';
+  renderModels(models);
   document.querySelector('#local-model').textContent = health.online ? 'Local model online' : 'Local model offline';
   document.querySelector('#model-count').textContent = health.online
     ? `${health.models.length} model${health.models.length === 1 ? '' : 's'} available`
     : 'Start the local model service to activate local intelligence';
-  document.querySelector('#model-label').textContent = modelName || (health.online ? 'No model installed' : 'Local model offline');
+  document.querySelector('#model-label').textContent = modelSelect.value || modelName || (health.online ? 'No model installed' : 'Local model offline');
   dot.style.background = health.online ? 'var(--green)' : '#e78290';
   renderState(state, taskResponse);
   await Promise.all([loadMemories(workspace.value.trim()), loadSkills()]);
@@ -457,7 +475,7 @@ async function resumeTask(taskItem, button) {
   const response = await fetch(`/api/tasks/${encodeURIComponent(taskItem.id)}/resume`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ model: modelName || undefined })
+    body: JSON.stringify({ model: modelSelect.value || modelName || undefined })
   });
   const data = await response.json();
   addMessage(response.ok ? 'bot' : 'error', 'OpenBot', data.reply || data.error || data.status || 'Task recovery finished.');
@@ -492,7 +510,7 @@ async function decide(approval, decision) {
     await fetch(`/api/tasks/${encodeURIComponent(approval.taskId)}/resume`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ approvalId: approval.id, model: modelName || undefined })
+      body: JSON.stringify({ approvalId: approval.id, model: modelSelect.value || modelName || undefined })
     });
   }
   await load();
@@ -514,7 +532,7 @@ async function startTask(message, pending, root) {
   const runResponse = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/run`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ model: modelName || undefined, skill: selectedSkill, botId: selectedBot, background: true })
+    body: JSON.stringify({ model: modelSelect.value || undefined, skill: selectedSkill, botId: selectedBot, background: true })
   });
   const started = await runResponse.json();
   if (!runResponse.ok || started.taskId !== taskId || started.status !== 'started') throw new Error(started.error || 'Task could not be started.');
@@ -577,6 +595,8 @@ botSelect.addEventListener('change', () => {
   const selected = botProfiles.get(botSelect.value);
   if (selected?.workspace && !workspace.value.trim()) workspace.value = selected.workspace;
 });
+
+modelSelect.addEventListener('change', updateModelLabel);
 
 botForm.addEventListener('submit', async (event) => {
   event.preventDefault();

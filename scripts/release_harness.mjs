@@ -106,7 +106,7 @@ async function main() {
   const appSource = await readFile(join(root, 'public/app.js'), 'utf8');
   const cliSource = await readFile(join(root, 'cli/openbot.mjs'), 'utf8');
   const clientSource = await readFile(join(root, 'lib/client.mjs'), 'utf8');
-  if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"') || !indexSource.includes('id="recent-tasks"') || !indexSource.includes('id="memories"') || !indexSource.includes('id="memory-form"') || !indexSource.includes('id="skills"') || !indexSource.includes('id="skill-form"') || !indexSource.includes('id="routine-form"') || !indexSource.includes('id="routine-schedule"') || !indexSource.includes('id="bot"') || !indexSource.includes('id="bot-form"') || !indexSource.includes('id="bot-name"')) throw new Error('dashboard is missing workspace, bot, task history, memory, skill, or routine controls');
+  if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"') || !indexSource.includes('id="recent-tasks"') || !indexSource.includes('id="memories"') || !indexSource.includes('id="memory-form"') || !indexSource.includes('id="skills"') || !indexSource.includes('id="skill-form"') || !indexSource.includes('id="routine-form"') || !indexSource.includes('id="routine-schedule"') || !indexSource.includes('id="bot"') || !indexSource.includes('id="bot-form"') || !indexSource.includes('id="bot-name"') || !indexSource.includes('id="model"')) throw new Error('dashboard is missing workspace, model, bot, task history, memory, skill, or routine controls');
   if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/resume') || !appSource.includes('resumeTask') || !appSource.includes('Resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/tasks/') || !appSource.includes('after=') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('/api/routines') || !appSource.includes('/api/bots') || !appSource.includes('Run now') || !appSource.includes('botId') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, recovery, task history, live activity, memory, skills, routines, bots, and audit links');
   if (appSource.includes('e.innerHTML=`')) throw new Error('dashboard renders state with unsafe innerHTML');
   pass('dashboard exposes workspace, action cards, and audit links safely');
@@ -120,6 +120,8 @@ async function main() {
   pass('CLI exposes durable task follow mode');
   if (!appSource.includes('EventSource') || !appSource.includes('/events/stream')) throw new Error('dashboard does not expose live task event streaming');
   pass('dashboard exposes live task event streaming');
+  if (!appSource.includes('modelSelect') || !appSource.includes('health.models') || !appSource.includes('model: modelSelect.value')) throw new Error('dashboard does not expose explicit per-task model selection');
+  pass('dashboard exposes explicit per-task model selection');
   const publicSurfaceFiles = ['README.md', 'PRD.md', 'SECURITY.md', 'CHANGELOG.md', 'cli/openbot.mjs', 'server.mjs', 'lib/config.mjs', 'lib/provider.mjs', 'lib/daemon.mjs', 'lib/client.mjs', 'lib/agent.mjs', 'lib/store.mjs', 'public/index.html', 'public/app.js', 'public/styles.css'];
   const forbiddenPublicBrand = /\b(?:Grok|Ollama|OpenAI|Anthropic|Gemini|Claude|Cursor|Groq)\b|x\.ai/i;
   for (const file of publicSurfaceFiles) {
