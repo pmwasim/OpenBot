@@ -71,6 +71,7 @@ async function main() {
     'lib/policy.mjs',
     'lib/provider.mjs',
     'lib/daemon.mjs',
+    'lib/client.mjs',
     'lib/loopback.mjs',
     'lib/engine.mjs',
     'lib/runtime.mjs',
@@ -91,7 +92,7 @@ async function main() {
   if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/resume') || !appSource.includes('resumeTask') || !appSource.includes('Resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('/api/routines') || !appSource.includes('/api/bots') || !appSource.includes('Run now') || !appSource.includes('botId') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, recovery, task history, memory, skills, routines, bots, and audit links');
   if (appSource.includes('e.innerHTML=`')) throw new Error('dashboard renders state with unsafe innerHTML');
   pass('dashboard exposes workspace, action cards, and audit links safely');
-  const publicSurfaceFiles = ['README.md', 'PRD.md', 'SECURITY.md', 'CHANGELOG.md', 'cli/openbot.mjs', 'server.mjs', 'lib/config.mjs', 'lib/provider.mjs', 'lib/daemon.mjs', 'lib/agent.mjs', 'lib/store.mjs', 'public/index.html', 'public/app.js', 'public/styles.css'];
+  const publicSurfaceFiles = ['README.md', 'PRD.md', 'SECURITY.md', 'CHANGELOG.md', 'cli/openbot.mjs', 'server.mjs', 'lib/config.mjs', 'lib/provider.mjs', 'lib/daemon.mjs', 'lib/client.mjs', 'lib/agent.mjs', 'lib/store.mjs', 'public/index.html', 'public/app.js', 'public/styles.css'];
   const forbiddenPublicBrand = /\b(?:Grok|Ollama|OpenAI|Anthropic|Gemini|Claude|Cursor|Groq)\b|x\.ai/i;
   for (const file of publicSurfaceFiles) {
     const source = await readFile(join(root, file), 'utf8');
@@ -452,7 +453,8 @@ async function main() {
           'not-json',
           JSON.stringify({ reply: 'The skill is loaded.' }),
           JSON.stringify({ reply: 'The routine completed.' }),
-          JSON.stringify({ reply: 'The interrupted task is complete.' })
+          JSON.stringify({ reply: 'The interrupted task is complete.' }),
+          JSON.stringify({ reply: 'The daemon client completed the task.' })
         ])
       },
       stdio: ['ignore', 'pipe', 'pipe']
@@ -555,6 +557,16 @@ async function main() {
       const recoveredBody = JSON.parse(recovered.body);
       if (recovered.status !== 200 || recoveredBody.status !== 'completed' || recoveredBody.taskId !== staleTask.task.id) throw new Error(`restart recovery ${recovered.status} ${recovered.body}`);
       pass('interrupted running tasks resume after daemon restart without changing task identity');
+      const daemonCli = await runNode([
+        'cli/openbot.mjs', 'chat', '--daemon', '--workspace', agentWs, '--json', 'Use the shared daemon client.'
+      ], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1', PORT: String(port), OPENBOT_DAEMON_URL: base }, { timeoutMs: 20000 });
+      const daemonCliJson = parseCliJson(daemonCli.output);
+      if (daemonCli.code !== 0 || daemonCliJson.status !== 'completed' || daemonCliJson.reply !== 'The daemon client completed the task.') {
+        throw new Error(`daemon CLI chat: ${daemonCli.output}`);
+      }
+      const daemonTasks = JSON.parse((await http('/api/tasks')).body).tasks || [];
+      if (!daemonTasks.some((task) => task.prompt === 'Use the shared daemon client.' && task.status === 'completed')) throw new Error('daemon client task was not persisted by the server');
+      pass('CLI chat can use the shared daemon and persists server-owned task state');
       const invalidModel = await http('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'test', model: '__not_installed__' }) });
       if (![400, 503].includes(invalidModel.status)) throw new Error(`status ${invalidModel.status}`); pass('uninstalled model is rejected');
       const oversized = await http('/api/approval', { method: 'POST', body: JSON.stringify({ id: 'x', decision: 'x', padding: 'a'.repeat(70000) }) });

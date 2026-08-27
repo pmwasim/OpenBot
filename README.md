@@ -24,6 +24,7 @@ OpenBot is a free, open-source, local-first bot that turns a task into bounded, 
 npm run check
 OPENBOT_RESOURCE_PROFILE=legacy node cli/openbot.mjs doctor --json
 node cli/openbot.mjs chat --workspace /path/to/project "Read notes.txt and summarize it" --json
+node cli/openbot.mjs chat --daemon --workspace /path/to/project "Use the shared local daemon" --json
 node cli/openbot.mjs bot add --name "Release steward" --role "Review local releases" --instructions "Check tests and report risks." --workspace /path/to/project --json
 node cli/openbot.mjs bot list --json
 node cli/openbot.mjs resume <task-id> --json
@@ -47,6 +48,8 @@ Natural-language tasks require a locally installed model runtime. Core administr
 The current release is a real local bot loop with durable named bots, reusable local skills, and explicit local routines. Desktop automation, connectors, signed extensions, collaboration, multi-user auth, and remote workers remain future work. Local reusable skills are supported as operator-selected instruction packs; they are not executable extensions and cannot expand the policy or tool boundary. The server remains loopback-only by default; explicit LAN mode uses the bearer-token boundary documented in `SECURITY.md`. The scheduler runs while the local daemon is running; it does not install an OS background service.
 
 `start --detach` keeps the daemon running after the terminal closes and writes its process record and runtime log under `OPENBOT_DATA_DIR` (default: `data/`). Use `status` to check the daemon and local model health, and `stop` for a clean shutdown. This is host-local background execution: shutting down or sleeping the laptop stops local work.
+
+Add `--daemon` to `chat` after starting the daemon to send the conversation through the shared local HTTP service. This keeps the task, approvals, audit history, routines, and dashboard state in the daemon process. The optional `OPENBOT_DAEMON_URL` environment variable selects an explicitly configured daemon endpoint; when LAN access is enabled, `OPENBOT_AUTH_TOKEN` is sent as its bearer credential.
 
 ## Release verification
 

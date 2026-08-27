@@ -10,6 +10,7 @@ import { createEngine } from '../lib/engine.mjs';
 import { createAgentController } from '../lib/agent.mjs';
 import { createRoutineScheduler } from '../lib/routines.mjs';
 import { daemonStatus, startDaemon, stopDaemon } from '../lib/daemon.mjs';
+import { daemonChat } from '../lib/client.mjs';
 
 const USAGE = `OpenBot CLI (local agent)
 
@@ -53,6 +54,7 @@ Commands:
 Options:
   --json             Print machine-readable JSON
   --detach           Start the daemon in the background
+  --daemon           Send chat through the local daemon
   --kind <kind>      Task or action kind (plan, file.write, shell.exec, browser.visit, ...)
   --model <name>     Local model name (defaults to the first installed model)
   --key <name>       Memory key for memory add
@@ -109,6 +111,7 @@ function parseArgs(argv) {
     const arg = argv[index];
     if (arg === '--json') flags.json = true;
     else if (arg === '--detach') flags.detach = true;
+    else if (arg === '--daemon') flags.daemon = true;
     else if (arg === '--help' || arg === '-h') flags.help = true;
     else if (arg.startsWith('--') && arg.includes('=')) {
       const eq = arg.indexOf('=');
@@ -207,6 +210,30 @@ async function runAgent(store, config, flags, prompt, options = {}) {
   if (flags.bot && !bot) fail(Object.assign(new Error('Bot not found.'), { exitCode: 1 }));
   const workspace = flags.workspace || bot?.workspace;
   if (!workspace || workspace === 'local') fail(Object.assign(new Error('Workspace is required (--workspace) or provided by the bot.'), { exitCode: 1 }));
+
+  if (flags.daemon) {
+    let result;
+    try {
+      result = await daemonChat(config, {
+        message: prompt,
+        workspace,
+        model: flags.model || undefined,
+        taskId: flags.taskId || undefined,
+        maxTurns: flags.maxTurns || undefined,
+        skill: flags.skill || undefined,
+        botId: bot?.id || undefined
+      });
+    } catch (error) {
+      error.exitCode = error.statusCode === 403 ? 2 : 1;
+      fail(error);
+    }
+    if (options.printResult !== false) {
+      if (flags.json) print(result, true);
+      else print(result.reply || `${result.status}${result.approvals?.length ? `: approval ${result.approvals[0].id}` : ''}`);
+      if (!['completed', 'waiting_approval'].includes(result.status)) process.exit(result.status === 'denied' ? 2 : 1);
+    }
+    return result;
+  }
 
   const fixture = Boolean(process.env.OPENBOT_TEST_AGENT_RESPONSES);
   const hub = createProviderHub(process.env, { modelUrl: config.modelUrl, modelProtocol: config.modelProtocol, remoteBaseUrl: config.remoteBaseUrl });

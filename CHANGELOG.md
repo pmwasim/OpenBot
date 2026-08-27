@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.1 — 2026-08-27
+
+Added opt-in shared-daemon CLI chat parity.
+
+- Send `openbot chat --daemon` through the local daemon so the CLI and dashboard use the same server-owned task, approval, audit, routine, and recovery state.
+- Support the configured daemon URL and bearer token for explicitly enabled LAN use without changing loopback-only defaults.
+- Preserve the direct local CLI controller path for offline administration and compatibility.
+- Expand release verification to cover a daemon-routed CLI conversation and server-owned task persistence.
+
 ## 0.4.0 — 2026-08-27
 
 Added a portable local daemon lifecycle for practical background use.
