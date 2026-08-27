@@ -131,6 +131,8 @@ async function main() {
   pass('versioned declarative skill packs are exposed across clients');
   if (!serverSource.includes('recordBotMessages') || !storeSource.includes('recordBotMessages')) throw new Error('named bot conversation writes are not atomic');
   pass('named bot conversation writes are atomic across async completion');
+  if (!appSource.includes('describeTaskError') || !appSource.includes('error.message') || !appSource.includes('pending.querySelector(\'p\').textContent = describeTaskError(error)')) throw new Error('dashboard hides actionable task-start errors');
+  pass('dashboard preserves actionable task-start errors');
   if (appSource.includes('e.innerHTML=`')) throw new Error('dashboard renders state with unsafe innerHTML');
   pass('dashboard exposes workspace, action cards, structured results, audit links, and downloadable task artifacts safely');
   if (!appSource.includes('editMemory') || !appSource.includes('editSkill') || !appSource.includes('editBot') || !appSource.includes('editConnector') || !appSource.includes("method: 'PATCH'") || !appSource.includes('Cancel') || !appSource.includes('Edit')) throw new Error('dashboard does not expose safe editing for bots, skills, memory, and connectors');
@@ -752,6 +754,10 @@ async function main() {
       }
       const health = await http('/api/health');
       if (health.status !== 200) throw new Error(`health status ${health.status} ${output}`); pass('health endpoint responds');
+      const appAsset = await http('/app.js');
+      const styleAsset = await http('/styles.css');
+      if (appAsset.status !== 200 || styleAsset.status !== 200 || appAsset.headers['cache-control'] !== 'no-store' || styleAsset.headers['cache-control'] !== 'no-store') throw new Error('dashboard assets can remain stale after a release');
+      pass('dashboard assets avoid stale release caches');
       const configResponse = await http('/api/config');
       const configBody = JSON.parse(configResponse.body);
       if (configResponse.status !== 200 || configBody.localOnly !== true || configBody.remoteApiKey !== 'unset' || configBody.modelUrl !== 'http://127.0.0.1:11434' || JSON.stringify(configBody.browserAllowHosts) !== JSON.stringify(['example.com'])) throw new Error(`config endpoint ${configResponse.status} ${configResponse.body}`);

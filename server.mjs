@@ -621,9 +621,10 @@ const app = http.createServer(async (req, res) => {
     }
     const file = url.pathname === '/' ? join(publicDir, 'index.html') : join(publicDir, url.pathname);
     if (!file.startsWith(publicDir) || !existsSync(file)) return json(res, 404, { error: 'Not found' });
+    const extension = extname(file);
     res.writeHead(200, {
-      'content-type': mime[extname(file)] || 'application/octet-stream',
-      'cache-control': extname(file) === '.html' ? 'no-store' : 'public, max-age=3600',
+      'content-type': mime[extension] || 'application/octet-stream',
+      'cache-control': ['.html', '.js', '.css'].includes(extension) ? 'no-store' : 'public, max-age=3600',
       'x-content-type-options': 'nosniff'
     });
     res.end(await readFile(file));

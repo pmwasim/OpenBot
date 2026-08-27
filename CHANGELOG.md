@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.39 — 2026-08-27
+
+Improved dashboard recovery and release freshness.
+
+- Preserve actionable server errors in the first-task dashboard flow instead of collapsing validation and task failures into a misleading connectivity message.
+- Serve mutable dashboard HTML, JavaScript, and CSS without stale browser caching so an upgrade becomes visible immediately.
+- Improve laptop-width form controls, focus visibility, and reusable skill-pack controls while preserving zero mandatory spend, old-laptop portability, approval boundaries, and brand-neutral public surfaces.
+
 ## 0.4.38 — 2026-08-27
 
 Hardened asynchronous named-bot conversation durability.

@@ -1,6 +1,6 @@
 {
   "name": "openbot-local-agent",
-  "version": "0.4.38",
+  "version": "0.4.39",
   "private": true,
   "type": "module",
   "scripts": {

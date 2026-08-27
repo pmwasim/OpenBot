@@ -46,6 +46,7 @@ OpenBot is a free, open-source, local-first bot that turns a task into bounded, 
 - Daemon-routed task control: `pause`, `resume`, and `cancel` can control server-owned work while preserving durable status transitions and the bounded agent loop.
 - Daemon-routed administration: `memory`, `skill`, `bot`, and `routine` commands can manage server-owned state without a second local store; named-bot chat and routine Run now use the shared daemon loop.
 - Lightweight desktop launcher: `desktop` starts or reuses the local daemon and opens the dashboard in the host browser; `--no-open` supports headless sessions.
+- Dashboard task-start failures preserve the server's actionable validation message, and mutable dashboard assets are served without stale browser caching so upgrades are visible immediately.
 - Optional user-level service integration: `service info`, `service install`, and `service uninstall` support macOS LaunchAgents and Linux systemd user services; `--dry-run` previews changes.
 - `legacy` resource profile for older CPU-only laptops: three turns/actions, compact context, and container-free allowlisted diagnostics; opt-in `auto` selection chooses it at 2 or fewer logical CPUs or below 8 GiB RAM.
 - Bounded daemon task queue: legacy runs one task at a time with four waiting slots; standard runs two tasks with eight waiting slots, and excess submissions are rejected instead of exhausting an older laptop.

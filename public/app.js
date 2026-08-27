@@ -857,6 +857,12 @@ async function startTask(message, pending, root) {
   await refreshTaskActivity();
 }
 
+function describeTaskError(error) {
+  const message = String(error?.message || '').trim();
+  if (!message || /failed to fetch|networkerror|load failed/i.test(message)) return 'OpenBot could not reach the local service.';
+  return message;
+}
+
 memoryForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const root = workspace.value.trim();
@@ -1033,9 +1039,9 @@ form.addEventListener('submit', async (event) => {
   const pending = addMessage('bot', 'OpenBot', 'Working with the local model…');
   try {
     await startTask(message, pending, root);
-  } catch {
+  } catch (error) {
     pending.classList.add('error');
-    pending.querySelector('p').textContent = 'OpenBot could not reach the local service.';
+    pending.querySelector('p').textContent = describeTaskError(error);
   }
 });
 
