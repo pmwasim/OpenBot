@@ -21,6 +21,7 @@ let watchedTasks = [];
 let taskActivityTimer = null;
 let taskActivityBusy = false;
 let taskStreamFallback = false;
+let conversationRequest = 0;
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -128,6 +129,30 @@ function addMessage(kind, title, text) {
   return article;
 }
 
+function renderBotConversation(bot, messages) {
+  chat.replaceChildren();
+  addMessage('bot', bot?.name || 'OpenBot', bot
+    ? `This is the durable conversation for ${bot.name}. Tasks remain approval-gated and scoped to its workspace.`
+    : 'Give me a task. I will use your local model to plan it and will stop before any consequential action.');
+  for (const message of Array.isArray(messages) ? messages : []) {
+    addMessage(message.role === 'user' ? 'user' : 'bot', message.role === 'user' ? 'You' : (bot?.name || 'OpenBot'), message.content || '');
+  }
+}
+
+async function loadBotConversation(id) {
+  const requestId = ++conversationRequest;
+  if (!id) {
+    renderBotConversation(null, []);
+    return;
+  }
+  const response = await fetch(`/api/bots/${encodeURIComponent(id)}/messages`);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'Bot conversation could not be loaded.');
+  if (requestId !== conversationRequest || botSelect.value !== id) return;
+  const bot = botProfiles.get(id) || { name: 'OpenBot' };
+  renderBotConversation(bot, data.messages);
+}
+
 function renderActions(message, data) {
   if (!Array.isArray(data.actions) || !data.actions.length) return;
   const cards = element('div', 'action-list');
@@ -203,15 +228,18 @@ function updateTaskMessage(taskItem) {
     reply.textContent = taskItem.result || 'Task completed.';
     notifyTaskCompletion(taskItem);
     taskMessages.delete(taskItem.id);
+    if (taskItem.botId && botSelect.value === taskItem.botId) void loadBotConversation(taskItem.botId).catch(() => {});
   } else if (status === 'failed') {
     reply.textContent = taskItem.error || 'Task failed.';
     message.classList.add('error');
     notifyTaskCompletion(taskItem);
     taskMessages.delete(taskItem.id);
+    if (taskItem.botId && botSelect.value === taskItem.botId) void loadBotConversation(taskItem.botId).catch(() => {});
   } else if (status === 'cancelled') {
     reply.textContent = 'Task cancelled.';
     notifyTaskCompletion(taskItem);
     taskMessages.delete(taskItem.id);
+    if (taskItem.botId && botSelect.value === taskItem.botId) void loadBotConversation(taskItem.botId).catch(() => {});
   } else if (status === 'paused') {
     reply.textContent = 'Task paused. Resume it from Recent tasks when ready.';
   } else {
@@ -735,6 +763,7 @@ skillForm.addEventListener('submit', async (event) => {
 botSelect.addEventListener('change', () => {
   const selected = botProfiles.get(botSelect.value);
   if (selected?.workspace && !workspace.value.trim()) workspace.value = selected.workspace;
+  void loadBotConversation(botSelect.value).catch((error) => addMessage('error', 'OpenBot', error.message || 'Bot conversation could not be loaded.'));
 });
 
 modelSelect.addEventListener('change', updateModelLabel);
@@ -775,6 +804,7 @@ botForm.addEventListener('submit', async (event) => {
   document.querySelector('#bot-instructions').value = '';
   await load();
   botSelect.value = data.bot.id;
+  await loadBotConversation(data.bot.id);
 });
 
 routineForm.addEventListener('submit', async (event) => {

@@ -335,6 +335,11 @@ const app = http.createServer(async (req, res) => {
       const result = await runAgentTask({ botId: id, taskId: payload.taskId, prompt: payload.message, workspace: bot.workspace, model: selected, providerName, maxTurns: payload.maxTurns, approvalId: payload.approvalId, skill: payload.skill });
       return json(res, agentHttpStatus(result), { provider: providerName, model: selected, ...result });
     }
+    if (url.pathname.startsWith('/api/bots/') && url.pathname.endsWith('/messages') && req.method === 'GET') {
+      const id = decodeURIComponent(url.pathname.slice('/api/bots/'.length, -'/messages'.length));
+      const messages = await store.listBotMessages(id);
+      return messages ? json(res, 200, { botId: id, messages }) : json(res, 404, { error: 'Bot not found.' });
+    }
     if (url.pathname.startsWith('/api/bots/') && req.method === 'GET') {
       const id = decodeURIComponent(url.pathname.slice('/api/bots/'.length));
       const bot = await store.getBot(id);

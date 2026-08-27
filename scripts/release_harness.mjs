@@ -110,7 +110,7 @@ async function main() {
   const cliSource = await readFile(join(root, 'cli/openbot.mjs'), 'utf8');
   const clientSource = await readFile(join(root, 'lib/client.mjs'), 'utf8');
   if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"') || !indexSource.includes('id="recent-tasks"') || !indexSource.includes('id="memories"') || !indexSource.includes('id="memory-form"') || !indexSource.includes('id="skills"') || !indexSource.includes('id="skill-form"') || !indexSource.includes('id="routine-form"') || !indexSource.includes('id="routine-schedule"') || !indexSource.includes('id="bot"') || !indexSource.includes('id="bot-form"') || !indexSource.includes('id="bot-name"') || !indexSource.includes('id="provider"') || !indexSource.includes('id="model"')) throw new Error('dashboard is missing workspace, provider, model, bot, task history, memory, skill, or routine controls');
-  if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/export') || !appSource.includes('/result') || !appSource.includes('/artifacts') || !appSource.includes('Open structured result') || !appSource.includes('Artifacts') || !appSource.includes('Download audit') || !appSource.includes('/resume') || !appSource.includes('resumeTask') || !appSource.includes('Resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/tasks/') || !appSource.includes('after=') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('/api/routines') || !appSource.includes('/api/bots') || !appSource.includes('Run now') || !appSource.includes('botId') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, recovery, task history, live activity, memory, skills, routines, bots, and result/artifact delivery');
+  if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/export') || !appSource.includes('/result') || !appSource.includes('/artifacts') || !appSource.includes('Open structured result') || !appSource.includes('Artifacts') || !appSource.includes('Download audit') || !appSource.includes('/resume') || !appSource.includes('resumeTask') || !appSource.includes('Resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/tasks/') || !appSource.includes('after=') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('/api/routines') || !appSource.includes('/api/bots') || !appSource.includes('/messages') || !appSource.includes('loadBotConversation') || !appSource.includes('Run now') || !appSource.includes('botId') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, recovery, task history, live activity, memory, skills, routines, bots, persistent conversations, and result/artifact delivery');
   if (appSource.includes('e.innerHTML=`')) throw new Error('dashboard renders state with unsafe innerHTML');
   pass('dashboard exposes workspace, action cards, structured results, audit links, and downloadable task artifacts safely');
   if (!appSource.includes('editMemory') || !appSource.includes('editSkill') || !appSource.includes('editBot') || !appSource.includes("method: 'PATCH'") || !appSource.includes('Cancel') || !appSource.includes('Edit')) throw new Error('dashboard does not expose safe editing for bots, skills, and memory');
@@ -125,6 +125,8 @@ async function main() {
   pass('CLI exposes concise task results locally and through the daemon');
   if (!cliSource.includes("command === 'artifacts'") || !cliSource.includes('daemonTaskArtifacts') || !clientSource.includes('daemonTaskArtifacts')) throw new Error('CLI does not expose typed task artifacts');
   pass('CLI exposes typed task artifacts locally and through the daemon');
+  if (!cliSource.includes("subcommand === 'history'") || !cliSource.includes('daemonBotMessages') || !clientSource.includes('daemonBotMessages')) throw new Error('CLI does not expose named bot conversation history');
+  pass('CLI exposes named bot conversation history locally and through the daemon');
   if (!serverSource.includes('TASK_RESULT_LIMITS') && !await readFile(join(root, 'lib/task-result.mjs'), 'utf8').then((source) => source.includes('maxActionResultChars'))) throw new Error('task result payloads are not size-bounded');
   if (!cliSource.includes('--provider') || !cliSource.includes('provider: flags.provider')) throw new Error('CLI does not expose explicit provider selection');
   pass('CLI exposes explicit provider selection');
@@ -143,6 +145,8 @@ async function main() {
   pass('server exposes a curated bounded task result view');
   if (!serverSource.includes("url.pathname.endsWith('/artifacts')") || !serverSource.includes("url.pathname.includes('/artifacts/')") || !serverSource.includes('taskArtifactInventory') || !serverSource.includes('redactArtifactContent')) throw new Error('server does not expose scoped task artifact inventory and access');
   pass('server exposes scoped task artifact inventory and access');
+  if (!serverSource.includes("url.pathname.endsWith('/messages')") || !serverSource.includes('listBotMessages')) throw new Error('server does not expose bounded named bot conversation history');
+  pass('server exposes bounded named bot conversation history');
   const { taskResultView, TASK_RESULT_LIMITS } = await import(pathToFileURL(join(root, 'lib/task-result.mjs')).href);
   const { taskArtifactInventory, redactArtifactContent, TASK_ARTIFACT_LIMITS } = await import(pathToFileURL(join(root, 'lib/task-artifacts.mjs')).href);
   const bounded = taskResultView(
@@ -713,6 +717,10 @@ async function main() {
       const botAfterChat = JSON.parse((await http(`/api/bots/${encodeURIComponent(botCreateBody.bot.id)}`)).body).bot;
       if (botChat.status !== 200 || botChatBody.status !== 'completed' || botChatBody.botId !== botCreateBody.bot.id || botAfterChat.messages?.length !== 2 || botAfterChat.messages?.[1]?.role !== 'assistant') throw new Error(`bot chat ${botChat.status} ${botChat.body}`);
       pass('bot chat uses the named profile and persists a bounded conversation');
+      const botMessages = await http(`/api/bots/${encodeURIComponent(botCreateBody.bot.id)}/messages`);
+      const botMessagesBody = JSON.parse(botMessages.body);
+      if (botMessages.status !== 200 || botMessagesBody.botId !== botCreateBody.bot.id || botMessagesBody.messages?.length !== 2 || botMessagesBody.messages?.[0]?.content !== 'Review the workspace.' || botMessagesBody.messages?.[1]?.role !== 'assistant') throw new Error(`bot messages ${botMessages.status} ${botMessages.body}`);
+      pass('named bot conversation history is readable as a bounded client contract');
       const namedAsyncCreate = await http('/api/tasks', { method: 'POST', body: JSON.stringify({ prompt: 'Run the named bot asynchronously.', kind: 'plan', workspace: agentWs, owner: 'dashboard', botId: botCreateBody.bot.id }) });
       const namedAsyncCreateBody = JSON.parse(namedAsyncCreate.body);
       const namedAsyncRun = await http(`/api/tasks/${encodeURIComponent(namedAsyncCreateBody.task.id)}/run`, { method: 'POST', body: JSON.stringify({ model: 'fixture-async', background: true }) });
@@ -901,6 +909,10 @@ async function main() {
       const daemonBotChat = await runNode(['cli/openbot.mjs', 'bot', 'chat', daemonBotAddJson.bot.id, '--daemon', '--workspace', agentWs, '--json', 'Use the shared bot.'], isolatedDaemonEnv, { timeoutMs: 20000 });
       const daemonBotChatJson = parseCliJson(daemonBotChat.output);
       if (daemonBotChat.code !== 0 || daemonBotChatJson.status !== 'completed' || daemonBotChatJson.reply !== 'The daemon bot completed.') throw new Error(`daemon bot chat: ${daemonBotChat.output}`);
+      const daemonBotHistory = await runNode(['cli/openbot.mjs', 'bot', 'history', daemonBotAddJson.bot.id, '--daemon', '--json'], isolatedDaemonEnv);
+      const daemonBotHistoryJson = parseCliJson(daemonBotHistory.output);
+      if (daemonBotHistory.code !== 0 || daemonBotHistoryJson.botId !== daemonBotAddJson.bot.id || daemonBotHistoryJson.messages?.[0]?.content !== 'Use the shared bot.' || daemonBotHistoryJson.messages?.[1]?.role !== 'assistant') throw new Error(`daemon bot history: ${daemonBotHistory.output}`);
+      pass('CLI reads named bot conversation history through the shared daemon');
       const daemonBotDelete = await runNode(['cli/openbot.mjs', 'bot', 'delete', daemonBotAddJson.bot.id, '--daemon', '--json'], isolatedDaemonEnv);
       if (daemonBotDelete.code !== 0) throw new Error(`daemon bot delete: ${daemonBotDelete.output}`);
       const daemonRoutineAdd = await runNode(['cli/openbot.mjs', 'routine', 'add', '--daemon', '--title', 'Daemon review', '--schedule', 'every 15m', '--workspace', agentWs, '--json', 'Review shared daemon state.'], isolatedDaemonEnv);

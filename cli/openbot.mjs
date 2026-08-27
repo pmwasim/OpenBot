@@ -15,7 +15,7 @@ import { daemonStatus, startDaemon, stopDaemon } from '../lib/daemon.mjs';
 import { launchDesktop } from '../lib/desktop.mjs';
 import { installService, serviceInfo, uninstallService } from '../lib/service.mjs';
 import {
-  daemonBot, daemonBots, daemonChat, daemonControlTask, daemonCreateBot, daemonCreateMemory, daemonCreateRoutine, daemonCreateSkill, daemonCreateTask, daemonRunTask, daemonTaskArtifacts, daemonTaskEvents, daemonTaskResult, daemonUpdateBot,
+  daemonBot, daemonBotMessages, daemonBots, daemonChat, daemonControlTask, daemonCreateBot, daemonCreateMemory, daemonCreateRoutine, daemonCreateSkill, daemonCreateTask, daemonRunTask, daemonTaskArtifacts, daemonTaskEvents, daemonTaskResult, daemonUpdateBot,
   daemonDecideApproval, daemonDeleteBot, daemonDeleteMemory, daemonDeleteSkill, daemonList, daemonLogs, daemonMemories, daemonResume, daemonUpdateMemory,
   daemonRoutine, daemonRoutines, daemonRunRoutine, daemonShow, daemonSkill, daemonSkills, daemonState, daemonUpdateRoutine, daemonUpdateSkill
 } from '../lib/client.mjs';
@@ -57,6 +57,7 @@ Commands:
   bot add            Create a named local bot
   bot update <id>    Update a named local bot
   bot chat <id>      Chat with a named local bot
+  bot history <id>   Show a named bot's bounded conversation history
   bot delete <id>    Delete a named local bot
   skill list         List reusable local skills
   skill add          Save an operator-approved local skill
@@ -556,7 +557,15 @@ async function main() {
       await runAgent(store, config, { ...flags, bot: id, workspace: flags.workspace || bot.workspace }, positional.slice(3).join(' ').trim());
       return;
     }
-    fail(Object.assign(new Error('Use bot list, bot add, bot update, bot chat, or bot delete.'), { exitCode: 1 }));
+    if (subcommand === 'history') {
+      const id = positional[2];
+      if (!id) fail(Object.assign(new Error('Bot id is required.'), { exitCode: 1 }));
+      const messages = flags.daemon ? (await daemonBotMessages(config, id)).messages : await store.listBotMessages(id);
+      if (!messages) fail(Object.assign(new Error('Bot not found.'), { exitCode: 1 }));
+      print({ botId: id, messages }, true);
+      return;
+    }
+    fail(Object.assign(new Error('Use bot list, bot add, bot update, bot chat, bot history, or bot delete.'), { exitCode: 1 }));
   }
 
   if (command === 'skill') {
