@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.26 — 2026-08-27
+
+Added bounded typed task-artifact inventory and selective access.
+
+- Expose `GET /api/tasks/:id/artifacts` for files actually produced by successful file or browser actions, with typed metadata and a 50-item cap.
+- Expose scoped text preview at `/api/tasks/:id/artifacts/:path`; it serves only an inventoried workspace-relative artifact, rechecks workspace containment, redacts content, and caps previews at 64 KiB.
+- Add dashboard artifact links and `openbot artifacts <task-id>` for local or daemon-routed inspection.
+- Preserve approval gates, no implicit directory creation, zero mandatory spend, old-laptop portability, and brand-neutral public surfaces.
+
 ## 0.4.25 — 2026-08-27
 
 Hardened structured task results and added CLI parity.

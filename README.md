@@ -34,6 +34,7 @@ OpenBot is a free, open-source, local-first bot that turns a task into bounded, 
 - Downloadable task artifacts: each recent-task card can open the read-only audit view or download a fixed-name JSON bundle containing that task's bounded record and redacted event history.
 - Concise task result views: recent-task cards preview the final result and link to `/api/tasks/:id/result`, which returns only status, outcome, bounded action summaries, and update time instead of the full audit stream.
 - CLI result parity: `result <task-id>` reads the concise result locally, while `result --daemon <task-id>` reads the same contract from the shared daemon; result fields are redacted and size-bounded.
+- Typed task artifacts: successful file and browser actions appear in a capped inventory at `/api/tasks/:id/artifacts`; the dashboard and `artifacts <task-id>` CLI command expose that inventory, and a selected workspace-relative artifact can be previewed through the bounded artifact route.
 - Daemon-routed CLI task management: `list`, `show`, `logs`, `approve`, and `reject` can inspect or change server-owned task state without a second local store.
 - Daemon-routed task control: `pause`, `resume`, and `cancel` can control server-owned work while preserving durable status transitions and the bounded agent loop.
 - Daemon-routed administration: `memory`, `skill`, `bot`, and `routine` commands can manage server-owned state without a second local store; named-bot chat and routine Run now use the shared daemon loop.
