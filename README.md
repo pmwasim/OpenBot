@@ -28,6 +28,7 @@ OpenBot is a free, open-source, local-first bot that turns a task into bounded, 
 - CLI durable follow mode: `run --daemon --follow` starts a durable task and follows its bounded event history until completion, approval, pause, cancellation, or failure; `run` without `--follow` remains create-only.
 - Live dashboard activity: active tasks use a bounded server-sent event stream at `/api/tasks/:id/events/stream`; clients fall back to offset polling when streaming is unavailable, and final task states close the stream.
 - Per-task local model choice: the dashboard lists models reported by the local daemon, lets the operator choose one for new or resumed work, and defaults to the first available model; the server validates the selection.
+- Optional compatible provider choice: when explicitly enabled, the dashboard and CLI can use a generic `/v1/models` and `/v1/chat/completions` endpoint per task; local-only mode remains the default and external provider costs are never required.
 - Daemon-routed CLI task management: `list`, `show`, `logs`, `approve`, and `reject` can inspect or change server-owned task state without a second local store.
 - Daemon-routed task control: `pause`, `resume`, and `cancel` can control server-owned work while preserving durable status transitions and the bounded agent loop.
 - Daemon-routed administration: `memory`, `skill`, `bot`, and `routine` commands can manage server-owned state without a second local store; named-bot chat and routine Run now use the shared daemon loop.
@@ -67,6 +68,8 @@ npm start
 `doctor --json` reports the active resource profile, agent caps, and whether container isolation is expected. Use `OPENBOT_RESOURCE_PROFILE=legacy` on older CPU-only laptops.
 
 The default local model protocol is `native` (`/api/tags` and `/api/chat`). To connect a lightweight local runtime that exposes the common chat-completions shape, set `OPENBOT_MODEL_PROTOCOL=chat-completions`; OpenBot will use `/v1/models` and `/v1/chat/completions` while keeping local-only endpoint checks enabled.
+
+The compatible remote provider is opt-in: set `OPENBOT_LOCAL_ONLY=0` and `OPENBOT_REMOTE_BASE_URL` to an endpoint exposing `/v1/models` and `/v1/chat/completions`; set `OPENBOT_REMOTE_API_KEY` only when that endpoint requires it. Use `--provider remote-compatible` in the CLI or choose it in the dashboard. External provider charges, availability, and data handling remain the operator's responsibility; no remote provider is required for a free local installation.
 
 Natural-language tasks require a locally installed model runtime. Core administration and bounded workers remain usable without a model. The legacy profile is a portability mode, not an unrestricted shell sandbox: only policy-allowlisted diagnostics may run directly on the host when container isolation is unavailable.
 

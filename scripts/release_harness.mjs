@@ -106,7 +106,7 @@ async function main() {
   const appSource = await readFile(join(root, 'public/app.js'), 'utf8');
   const cliSource = await readFile(join(root, 'cli/openbot.mjs'), 'utf8');
   const clientSource = await readFile(join(root, 'lib/client.mjs'), 'utf8');
-  if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"') || !indexSource.includes('id="recent-tasks"') || !indexSource.includes('id="memories"') || !indexSource.includes('id="memory-form"') || !indexSource.includes('id="skills"') || !indexSource.includes('id="skill-form"') || !indexSource.includes('id="routine-form"') || !indexSource.includes('id="routine-schedule"') || !indexSource.includes('id="bot"') || !indexSource.includes('id="bot-form"') || !indexSource.includes('id="bot-name"') || !indexSource.includes('id="model"')) throw new Error('dashboard is missing workspace, model, bot, task history, memory, skill, or routine controls');
+  if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"') || !indexSource.includes('id="recent-tasks"') || !indexSource.includes('id="memories"') || !indexSource.includes('id="memory-form"') || !indexSource.includes('id="skills"') || !indexSource.includes('id="skill-form"') || !indexSource.includes('id="routine-form"') || !indexSource.includes('id="routine-schedule"') || !indexSource.includes('id="bot"') || !indexSource.includes('id="bot-form"') || !indexSource.includes('id="bot-name"') || !indexSource.includes('id="provider"') || !indexSource.includes('id="model"')) throw new Error('dashboard is missing workspace, provider, model, bot, task history, memory, skill, or routine controls');
   if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/resume') || !appSource.includes('resumeTask') || !appSource.includes('Resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/tasks/') || !appSource.includes('after=') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('/api/routines') || !appSource.includes('/api/bots') || !appSource.includes('Run now') || !appSource.includes('botId') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, recovery, task history, live activity, memory, skills, routines, bots, and audit links');
   if (appSource.includes('e.innerHTML=`')) throw new Error('dashboard renders state with unsafe innerHTML');
   pass('dashboard exposes workspace, action cards, and audit links safely');
@@ -118,10 +118,14 @@ async function main() {
   pass('dashboard exposes asynchronous durable task execution');
   if (!cliSource.includes('--follow') || !cliSource.includes('daemonRunTask') || !clientSource.includes('daemonCreateTask') || !clientSource.includes('daemonTaskEvents')) throw new Error('CLI does not expose durable task follow mode');
   pass('CLI exposes durable task follow mode');
+  if (!cliSource.includes('--provider') || !cliSource.includes('provider: flags.provider')) throw new Error('CLI does not expose explicit provider selection');
+  pass('CLI exposes explicit provider selection');
   if (!appSource.includes('EventSource') || !appSource.includes('/events/stream')) throw new Error('dashboard does not expose live task event streaming');
   pass('dashboard exposes live task event streaming');
   if (!appSource.includes('modelSelect') || !appSource.includes('health.models') || !appSource.includes('model: modelSelect.value')) throw new Error('dashboard does not expose explicit per-task model selection');
   pass('dashboard exposes explicit per-task model selection');
+  if (!appSource.includes('providerSelect') || !appSource.includes('health.providers') || !appSource.includes('provider: providerSelect.value')) throw new Error('dashboard does not expose explicit per-task provider selection');
+  pass('dashboard exposes explicit per-task provider selection');
   const publicSurfaceFiles = ['README.md', 'PRD.md', 'SECURITY.md', 'CHANGELOG.md', 'cli/openbot.mjs', 'server.mjs', 'lib/config.mjs', 'lib/provider.mjs', 'lib/daemon.mjs', 'lib/client.mjs', 'lib/agent.mjs', 'lib/store.mjs', 'public/index.html', 'public/app.js', 'public/styles.css'];
   const forbiddenPublicBrand = /\b(?:Grok|Ollama|OpenAI|Anthropic|Gemini|Claude|Cursor|Groq)\b|x\.ai/i;
   for (const file of publicSurfaceFiles) {
@@ -177,6 +181,8 @@ async function main() {
   const hub = createProviderHub({ OPENBOT_REMOTE_API_KEY: 'sk-secret-value' });
   if (!hub.localOnly || hub.localModel.baseUrl !== 'http://127.0.0.1:11434') throw new Error('local model default');
   if (createRemoteCompatibleAdapter().enabled) throw new Error('remote-compatible provider should be disabled');
+  const compatible = createRemoteCompatibleAdapter({ baseUrl: 'http://127.0.0.1:1' });
+  if (typeof compatible.tags !== 'function' || typeof compatible.chatStructured !== 'function') throw new Error('remote-compatible provider adapter is incomplete');
   const redacted = redactSecrets({ apiKey: 'sk-secret-value', model: 'local' });
   if (redacted.apiKey !== '[redacted]' || redacted.model !== 'local') throw new Error('redact');
   if (JSON.stringify(hub.describe()).includes('sk-secret-value')) throw new Error('secret leaked');
@@ -210,6 +216,11 @@ async function main() {
     const protocolTags = await protocolHub.localModel.tags();
     const protocolReply = await protocolHub.localModel.chatStructured({ model: 'small-local', messages: [{ role: 'user', content: 'test' }], tools: [] });
     if (protocolHub.localModel.protocol !== 'chat-completions' || !protocolTags.models.includes('small-local') || !protocolReply.ok || !protocolReply.reply.includes('protocol:small-local')) throw new Error('chat-completions protocol adapter');
+    const remoteHub = createProviderHub({ OPENBOT_LOCAL_ONLY: '0', OPENBOT_REMOTE_BASE_URL: `http://127.0.0.1:${protocolPort}`, OPENBOT_REMOTE_API_KEY: 'remote-secret' });
+    const remoteTags = await remoteHub.remoteCompatible.tags();
+    const remoteReply = await remoteHub.remoteCompatible.chatStructured({ model: 'small-local', messages: [{ role: 'user', content: 'test' }], tools: [] });
+    if (!remoteTags.models.includes('small-local') || !remoteReply.ok || !remoteReply.reply.includes('protocol:small-local') || JSON.stringify(remoteHub.describe()).includes('remote-secret')) throw new Error('remote-compatible provider adapter');
+    pass('remote-compatible provider adapter supports model discovery, structured chat, and secret redaction');
   } finally {
     await closeServer(protocolFixture);
   }
@@ -673,9 +684,10 @@ async function main() {
       if (badSkill.status !== 404 || tasksAfterBadSkill.length !== tasksBeforeBadSkill) throw new Error(`unknown skill ${badSkill.status} ${badSkill.body}`);
       pass('unknown local skills are rejected before a task is created');
       await writeFile(join(agentWs, 'notes.txt'), 'agent fixture\n');
-      const agentRead = await http('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'Read the notes.', workspace: agentWs, model: 'fixture' }) });
+      const agentRead = await http('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'Read the notes.', workspace: agentWs, provider: 'remote-compatible', model: 'fixture' }) });
       const agentReadBody = JSON.parse(agentRead.body);
-      if (agentRead.status !== 200 || agentReadBody.status !== 'completed' || agentReadBody.actions?.[0]?.status !== 'executed') throw new Error(`agent read ${agentRead.status} ${agentRead.body}`);
+      const agentReadAudit = JSON.parse((await http(`/api/tasks/${encodeURIComponent(agentReadBody.taskId)}`)).body);
+      if (agentRead.status !== 200 || agentReadBody.status !== 'completed' || agentReadBody.provider !== 'remote-compatible' || agentReadBody.actions?.[0]?.status !== 'executed' || agentReadAudit.task?.provider !== 'remote-compatible' || !agentReadAudit.events?.some((event) => event.type === 'model.request' && event.payload?.provider === 'remote-compatible')) throw new Error(`agent read ${agentRead.status} ${agentRead.body}`);
       if (!agentReadBody.reply || !agentReadBody.taskId) throw new Error('agent read result');
       pass('agent chat executes safe structured work and returns a final reply');
       const agentWrite = await http('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'Change the notes.', workspace: agentWs, model: 'fixture' }) });

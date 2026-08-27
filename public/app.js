@@ -8,8 +8,10 @@ const routineForm = document.querySelector('#routine-form');
 const botForm = document.querySelector('#bot-form');
 const skillSelect = document.querySelector('#skill');
 const botSelect = document.querySelector('#bot');
+const providerSelect = document.querySelector('#provider');
 const modelSelect = document.querySelector('#model');
 let botProfiles = new Map();
+let providerProfiles = new Map();
 let modelName = '';
 let taskEventOffsets = new Map();
 let taskActivityNodes = new Map();
@@ -80,6 +82,27 @@ function renderModels(models) {
   }
   modelSelect.disabled = models.length === 0;
   if (models.includes(selected)) modelSelect.value = selected;
+}
+
+function renderProviders(providers) {
+  const available = providers.filter((provider) => provider && provider.enabled !== false && provider.id);
+  const selected = providerSelect.value || 'local-model';
+  providerProfiles = new Map(available.map((provider) => [String(provider.id), provider]));
+  providerSelect.replaceChildren();
+  for (const provider of available) {
+    const option = element('option', '', provider.label || provider.id);
+    option.value = provider.id;
+    providerSelect.append(option);
+  }
+  if (providerProfiles.has(selected)) providerSelect.value = selected;
+  else if (providerProfiles.has('local-model')) providerSelect.value = 'local-model';
+  else providerSelect.value = available[0]?.id || '';
+}
+
+function updateModelLabel() {
+  const profile = providerProfiles.get(providerSelect.value);
+  const available = Boolean(profile?.online && profile?.models?.length);
+  document.querySelector('#model-label').textContent = modelSelect.value || modelName || (available ? 'No model selected' : `${profile?.label || 'Provider'} offline`);
 }
 
 function updateTaskMessage(taskItem) {
@@ -397,14 +420,17 @@ async function load() {
     fetch('/api/tasks').then((response) => response.json())
   ]);
   const dot = document.querySelector('#health-dot');
-  const models = Array.isArray(health.models) ? health.models.map((model) => String(model)).filter(Boolean) : [];
+  const providers = Array.isArray(health.providers) ? health.providers : [{ id: 'local-model', label: 'Local model', enabled: true, online: health.online, models: health.models || [] }];
+  renderProviders(providers);
+  const activeProvider = providerProfiles.get(providerSelect.value);
+  const models = Array.isArray(activeProvider?.models) ? activeProvider.models.map((model) => String(model)).filter(Boolean) : [];
   modelName = models[0] || '';
   renderModels(models);
   document.querySelector('#local-model').textContent = health.online ? 'Local model online' : 'Local model offline';
   document.querySelector('#model-count').textContent = health.online
     ? `${health.models.length} model${health.models.length === 1 ? '' : 's'} available`
     : 'Start the local model service to activate local intelligence';
-  document.querySelector('#model-label').textContent = modelSelect.value || modelName || (health.online ? 'No model installed' : 'Local model offline');
+  updateModelLabel();
   dot.style.background = health.online ? 'var(--green)' : '#e78290';
   renderState(state, taskResponse);
   await Promise.all([loadMemories(workspace.value.trim()), loadSkills()]);
@@ -412,6 +438,7 @@ async function load() {
 
 function renderState(state, taskResponse = {}) {
   const tasks = Array.isArray(taskResponse.tasks) ? taskResponse.tasks : [];
+  watchedTasks = tasks;
   const recent = document.querySelector('#recent-tasks');
   recent.replaceChildren();
   taskActivityNodes = new Map();
@@ -472,10 +499,11 @@ function renderState(state, taskResponse = {}) {
 
 async function resumeTask(taskItem, button) {
   button.disabled = true;
+  const taskProvider = taskItem.provider || providerSelect.value || 'local-model';
   const response = await fetch(`/api/tasks/${encodeURIComponent(taskItem.id)}/resume`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ model: modelSelect.value || modelName || undefined })
+    body: JSON.stringify({ provider: taskProvider, model: providerSelect.value === taskProvider ? (modelSelect.value || modelName || undefined) : undefined })
   });
   const data = await response.json();
   addMessage(response.ok ? 'bot' : 'error', 'OpenBot', data.reply || data.error || data.status || 'Task recovery finished.');
@@ -507,10 +535,11 @@ async function decide(approval, decision) {
     body: JSON.stringify({ id: approval.id, decision })
   });
   if (response.ok && decision === 'approved' && approval.taskId) {
+    const taskProvider = watchedTasks.find((item) => item.id === approval.taskId)?.provider || providerSelect.value || 'local-model';
     await fetch(`/api/tasks/${encodeURIComponent(approval.taskId)}/resume`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ approvalId: approval.id, model: modelSelect.value || modelName || undefined })
+      body: JSON.stringify({ approvalId: approval.id, provider: taskProvider, model: providerSelect.value === taskProvider ? (modelSelect.value || modelName || undefined) : undefined })
     });
   }
   await load();
@@ -519,10 +548,11 @@ async function decide(approval, decision) {
 async function startTask(message, pending, root) {
   const selectedSkill = skillSelect.value || undefined;
   const selectedBot = botSelect.value || undefined;
+  const selectedProvider = providerSelect.value || 'local-model';
   const createResponse = await fetch('/api/tasks', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ prompt: message, kind: 'plan', workspace: root, owner: 'dashboard', skill: selectedSkill, botId: selectedBot })
+    body: JSON.stringify({ prompt: message, kind: 'plan', workspace: root, owner: 'dashboard', provider: selectedProvider, skill: selectedSkill, botId: selectedBot })
   });
   const created = await createResponse.json();
   if (!createResponse.ok || !created.task?.id) throw new Error(created.error || 'Task could not be created.');
@@ -532,7 +562,7 @@ async function startTask(message, pending, root) {
   const runResponse = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/run`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ model: modelSelect.value || undefined, skill: selectedSkill, botId: selectedBot, background: true })
+    body: JSON.stringify({ provider: providerSelect.value || selectedProvider, model: modelSelect.value || undefined, skill: selectedSkill, botId: selectedBot, background: true })
   });
   const started = await runResponse.json();
   if (!runResponse.ok || started.taskId !== taskId || started.status !== 'started') throw new Error(started.error || 'Task could not be started.');
@@ -597,6 +627,13 @@ botSelect.addEventListener('change', () => {
 });
 
 modelSelect.addEventListener('change', updateModelLabel);
+
+providerSelect.addEventListener('change', () => {
+  const profile = providerProfiles.get(providerSelect.value);
+  modelName = Array.isArray(profile?.models) ? String(profile.models[0] || '') : '';
+  renderModels(Array.isArray(profile?.models) ? profile.models : []);
+  updateModelLabel();
+});
 
 botForm.addEventListener('submit', async (event) => {
   event.preventDefault();

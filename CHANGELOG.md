@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.20 — 2026-08-27
+
+Added an opt-in compatible remote provider alongside the local-first provider.
+
+- Support model discovery and structured agent requests through a generic `/v1/models` and `/v1/chat/completions` compatible endpoint.
+- Let dashboard and CLI operators choose a provider and model per task; task metadata and audit events retain the selected provider.
+- Keep local-only mode as the default, reject external providers unless explicitly enabled, bound remote requests, and redact provider credentials and endpoint userinfo.
+- Preserve zero mandatory spend, old-laptop portability, approval gates, workspace containment, cancellation, and brand-neutral public surfaces.
+
 ## 0.4.19 — 2026-08-27
 
 Added explicit per-task local model selection in the dashboard.

@@ -77,15 +77,23 @@ const agentProvider = process.env.OPENBOT_TEST_AGENT_RESPONSES
   : localModel;
 const activeTaskControllers = new Map();
 
-async function resolveAgentModel(requested) {
+function resolveAgentProvider(providerName = 'local-model') {
+  const selected = String(providerName || 'local-model').trim() || 'local-model';
+  if (process.env.OPENBOT_TEST_AGENT_RESPONSES) return { name: selected, provider: agentProvider };
+  try { return { name: selected, provider: providers.get(selected) }; }
+  catch (error) { throw Object.assign(error, { statusCode: error.statusCode || 400 }); }
+}
+
+async function resolveAgentModel(requested, providerName = 'local-model') {
+  const resolved = resolveAgentProvider(providerName);
   if (process.env.OPENBOT_TEST_AGENT_RESPONSES) return requested || 'fixture';
   let tags;
-  try { tags = await localModel.tags(); }
-  catch { throw Object.assign(new Error('The local model runtime is not available. Start it, then install a local model.'), { statusCode: 503 }); }
-  if (!tags.ok) throw Object.assign(new Error('The local model runtime is not available. Start it, then install a local model.'), { statusCode: 503 });
+  try { tags = await resolved.provider.tags(); }
+  catch { throw Object.assign(new Error(`The ${resolved.name} provider is not available or did not return its model list.`), { statusCode: 503 }); }
+  if (!tags.ok) throw Object.assign(new Error(`The ${resolved.name} provider is not available or did not return its model list.`), { statusCode: 503 });
   const selected = requested || tags.models[0];
-  if (!selected) throw Object.assign(new Error('The local model runtime has no model installed yet.'), { statusCode: 503 });
-  if (!tags.models.includes(selected)) throw Object.assign(new Error('Requested model is not installed locally.'), { statusCode: 400 });
+  if (!selected) throw Object.assign(new Error(`The ${resolved.name} provider has no model available yet.`), { statusCode: 503 });
+  if (!tags.models.includes(selected)) throw Object.assign(new Error(`Requested model is not available from ${resolved.name}.`), { statusCode: 400 });
   return selected;
 }
 
@@ -96,9 +104,12 @@ async function resolveBot(botId) {
   return bot;
 }
 
-async function runAgentTask({ taskId, prompt, workspace, model, maxTurns, approvalId, skill, botId, recordBotConversation = false }) {
+async function runAgentTask({ taskId, prompt, workspace, model, providerName, maxTurns, approvalId, skill, botId, recordBotConversation = false }) {
   const isNewTask = !taskId;
   const existingTask = taskId ? await store.getTask(taskId) : null;
+  const selectedProviderName = String(providerName || existingTask?.provider || 'local-model').trim() || 'local-model';
+  if (existingTask && providerName && existingTask.provider !== selectedProviderName) throw Object.assign(new Error('Task provider does not match the requested provider.'), { statusCode: 409 });
+  const selectedProvider = resolveAgentProvider(selectedProviderName).provider;
   const selectedPrompt = String(prompt || existingTask?.prompt || '').trim();
   if (!selectedPrompt) throw Object.assign(new Error('A task prompt is required.'), { statusCode: 400 });
   const bot = await resolveBot(botId || existingTask?.botId);
@@ -114,7 +125,7 @@ async function runAgentTask({ taskId, prompt, workspace, model, maxTurns, approv
     const created = await store.createTask({
       prompt: selectedPrompt,
       kind: 'plan',
-      provider: 'local-model',
+      provider: selectedProviderName,
       workspace: selectedWorkspace,
       owner: 'agent',
       skill: skill || null,
@@ -137,7 +148,8 @@ async function runAgentTask({ taskId, prompt, workspace, model, maxTurns, approv
     }
     const controller = createAgentController({
       store,
-      provider: agentProvider,
+      provider: selectedProvider,
+      providerName: selectedProviderName,
       engine: createEngine({ store, actor: 'agent' }),
       actor: 'agent',
       maxTurns: Math.min(Number(maxTurns) > 0 ? Number(maxTurns) : config.agentMaxTurns, config.agentMaxTurns),
@@ -161,8 +173,8 @@ async function runAgentTask({ taskId, prompt, workspace, model, maxTurns, approv
 
 async function runTaskInBackground(task) {
   try {
-    const selected = await resolveAgentModel(task.model);
-    await runAgentTask({ taskId: task.id, prompt: task.prompt, workspace: task.workspace, model: selected, maxTurns: task.maxTurns, approvalId: task.approvalId, skill: task.skill, botId: task.botId, recordBotConversation: task.recordBotConversation });
+    const selected = await resolveAgentModel(task.model, task.provider);
+    await runAgentTask({ taskId: task.id, prompt: task.prompt, workspace: task.workspace, model: selected, providerName: task.provider, maxTurns: task.maxTurns, approvalId: task.approvalId, skill: task.skill, botId: task.botId, recordBotConversation: task.recordBotConversation });
   } catch (error) {
     const current = await store.getTask(task.id).catch(() => null);
     if (current && ['pending', 'running'].includes(current.status)) {
@@ -175,7 +187,7 @@ const routineScheduler = createRoutineScheduler({
   store,
   runRoutine: async (routine) => {
     const model = await resolveAgentModel();
-    return runAgentTask({ prompt: routine.prompt, workspace: routine.workspace, model, skill: routine.skill, botId: routine.botId });
+    return runAgentTask({ prompt: routine.prompt, workspace: routine.workspace, model, providerName: 'local-model', skill: routine.skill, botId: routine.botId });
   }
 });
 
@@ -303,9 +315,11 @@ const app = http.createServer(async (req, res) => {
       const payload = await body(req);
       if (typeof payload.message !== 'string' || !payload.message.trim()) return json(res, 400, { error: 'A bot message is required.' });
       const bot = await resolveBot(id);
-      const selected = await resolveAgentModel(payload.model);
-      const result = await runAgentTask({ botId: id, taskId: payload.taskId, prompt: payload.message, workspace: bot.workspace, model: selected, maxTurns: payload.maxTurns, approvalId: payload.approvalId, skill: payload.skill });
-      return json(res, agentHttpStatus(result), { model: selected, ...result });
+      const taskRecord = payload.taskId ? await store.getTask(payload.taskId) : null;
+      const providerName = payload.provider || taskRecord?.provider || 'local-model';
+      const selected = await resolveAgentModel(payload.model, providerName);
+      const result = await runAgentTask({ botId: id, taskId: payload.taskId, prompt: payload.message, workspace: bot.workspace, model: selected, providerName, maxTurns: payload.maxTurns, approvalId: payload.approvalId, skill: payload.skill });
+      return json(res, agentHttpStatus(result), { provider: providerName, model: selected, ...result });
     }
     if (url.pathname.startsWith('/api/bots/') && req.method === 'GET') {
       const id = decodeURIComponent(url.pathname.slice('/api/bots/'.length));
@@ -340,10 +354,15 @@ const app = http.createServer(async (req, res) => {
       return json(res, 200, await store.deleteRoutine(id));
     }
     if (url.pathname === '/api/health' && req.method === 'GET') {
-      try {
-        const tags = await localModel.tags();
-        return json(res, 200, { online: tags.ok, models: tags.models || [] });
-      } catch { return json(res, 200, { online: false, models: [] }); }
+      let localTags = { ok: false, models: [] };
+      try { localTags = await localModel.tags(); } catch {}
+      const providerList = [{ id: 'local-model', label: 'Local model', local: true, enabled: true, online: localTags.ok, models: localTags.models || [] }];
+      if (!providers.localOnly && providers.remoteCompatible.enabled) {
+        let remoteTags = { ok: false, models: [] };
+        try { remoteTags = await providers.remoteCompatible.tags(); } catch {}
+        providerList.push({ id: 'remote-compatible', label: 'Compatible remote provider', local: false, enabled: true, online: remoteTags.ok, models: remoteTags.models || [] });
+      }
+      return json(res, 200, { online: localTags.ok, models: localTags.models || [], providers: providerList });
     }
     if (url.pathname === '/api/tasks' && req.method === 'GET') {
       return json(res, 200, { tasks: await store.listTasks() });
@@ -436,9 +455,10 @@ const app = http.createServer(async (req, res) => {
       if (task.status === 'paused') await store.setTaskStatus(taskId, 'resume');
       if (!['pending', 'running', 'waiting_approval'].includes(task.status) && task.status !== 'paused') return json(res, 409, { error: `Task is not resumable from status "${task.status}".` });
       const payload = await body(req);
-      const selected = await resolveAgentModel(payload.model);
-      const result = await runAgentTask({ taskId, prompt: task.prompt, workspace: task.workspace, model: selected, maxTurns: payload.maxTurns, approvalId: payload.approvalId, skill: payload.skill || task.skill, botId: task.botId });
-      return json(res, agentHttpStatus(result), { model: selected, ...result });
+      const providerName = payload.provider || task.provider || 'local-model';
+      const selected = await resolveAgentModel(payload.model, providerName);
+      const result = await runAgentTask({ taskId, prompt: task.prompt, workspace: task.workspace, model: selected, providerName, maxTurns: payload.maxTurns, approvalId: payload.approvalId, skill: payload.skill || task.skill, botId: task.botId });
+      return json(res, agentHttpStatus(result), { provider: providerName, model: selected, ...result });
     }
     if (url.pathname.startsWith('/api/tasks/') && url.pathname.endsWith('/control') && req.method === 'POST') {
       const taskId = url.pathname.slice('/api/tasks/'.length, -'/control'.length);
@@ -455,18 +475,22 @@ const app = http.createServer(async (req, res) => {
       if (task.status !== 'pending') return json(res, 409, { error: `Task is not runnable from status "${task.status}".` });
       if (activeTaskControllers.has(taskId)) return json(res, 409, { error: 'Task is already running.' });
       const payload = await body(req);
-      void runTaskInBackground({ ...task, model: payload.model, maxTurns: payload.maxTurns, approvalId: payload.approvalId, skill: payload.skill || task.skill, botId: payload.botId || task.botId, recordBotConversation: true });
+      const providerName = payload.provider || task.provider || 'local-model';
+      if (providerName !== task.provider) return json(res, 409, { error: 'Task provider does not match the requested provider.' });
+      void runTaskInBackground({ ...task, model: payload.model, provider: providerName, maxTurns: payload.maxTurns, approvalId: payload.approvalId, skill: payload.skill || task.skill, botId: payload.botId || task.botId, recordBotConversation: true });
       return json(res, 202, { taskId, status: 'started', task });
     }
     if (url.pathname === '/api/chat' && req.method === 'POST') {
-      const { message, model, workspace, taskId, maxTurns, skill, botId } = await body(req);
+      const { message, model, provider, workspace, taskId, maxTurns, skill, botId } = await body(req);
       if (typeof message !== 'string' || !message.trim()) return json(res, 400, { error: 'A task is required.' });
       const bot = await resolveBot(botId);
       const selectedWorkspace = workspace || bot?.workspace;
       if (typeof selectedWorkspace !== 'string' || !selectedWorkspace.trim() || selectedWorkspace === 'local') return json(res, 400, { error: 'An explicit workspace path is required for agent work.' });
-      const selected = await resolveAgentModel(model);
-      const result = await runAgentTask({ taskId, prompt: message, workspace: selectedWorkspace, model: selected, maxTurns, skill, botId });
-      return json(res, agentHttpStatus(result), { model: selected, ...result });
+      const taskRecord = taskId ? await store.getTask(taskId) : null;
+      const providerName = provider || taskRecord?.provider || 'local-model';
+      const selected = await resolveAgentModel(model, providerName);
+      const result = await runAgentTask({ taskId, prompt: message, workspace: selectedWorkspace, model: selected, providerName, maxTurns, skill, botId });
+      return json(res, agentHttpStatus(result), { provider: providerName, model: selected, ...result });
     }
     const file = url.pathname === '/' ? join(publicDir, 'index.html') : join(publicDir, url.pathname);
     if (!file.startsWith(publicDir) || !existsSync(file)) return json(res, 404, { error: 'Not found' });

@@ -72,7 +72,8 @@ Options:
   --daemon           Send supported chat and task commands through the local daemon
   --follow           Start a daemon task and follow its bounded event history to completion
   --kind <kind>      Task or action kind (plan, file.write, shell.exec, browser.visit, ...)
-  --model <name>     Local model name (defaults to the first installed model)
+  --provider <id>    Provider id (local-model or configured remote-compatible)
+  --model <name>     Model name (defaults to the first available model)
   --key <name>       Memory key for memory add
   --value <text>     Memory value for memory add
   --name <name>      Skill name for skill add
@@ -95,6 +96,7 @@ Options:
 `;
 
 const VALUE_FLAGS = {
+  '--provider': 'provider',
   '--kind': 'kind',
   '--title': 'title',
   '--workspace': 'workspace',
@@ -278,6 +280,7 @@ async function runAgent(store, config, flags, prompt, options = {}) {
       result = await daemonChat(config, {
         message: prompt,
         workspace,
+        provider: flags.provider || undefined,
         model: flags.model || undefined,
         taskId: flags.taskId || undefined,
         maxTurns: flags.maxTurns || undefined,
@@ -299,22 +302,24 @@ async function runAgent(store, config, flags, prompt, options = {}) {
   const fixture = Boolean(process.env.OPENBOT_TEST_AGENT_RESPONSES);
   const hub = createProviderHub(process.env, { modelUrl: config.modelUrl, modelProtocol: config.modelProtocol, remoteBaseUrl: config.remoteBaseUrl });
   let model = flags.model || '';
-  let provider = hub.localModel;
+  const providerName = flags.provider || 'local-model';
+  let provider = providerName === 'local-model' ? hub.localModel : hub.get(providerName);
   if (fixture) {
     provider = fixtureAgentProvider(process.env.OPENBOT_TEST_AGENT_RESPONSES);
   } else {
     let tags;
     try { tags = await provider.tags(); }
-    catch (error) { fail(Object.assign(new Error(`Local model runtime is unavailable: ${error.message}`), { exitCode: 1 })); }
-    if (!tags.ok) fail(Object.assign(new Error('Local model runtime is unavailable. Start it, then install a local model.'), { exitCode: 1 }));
+    catch (error) { fail(Object.assign(new Error(`${providerName} provider is unavailable: ${error.message}`), { exitCode: 1 })); }
+    if (!tags.ok) fail(Object.assign(new Error(`${providerName} provider is unavailable or returned no model list.`), { exitCode: 1 }));
     model = model || tags.models[0] || '';
-    if (!model) fail(Object.assign(new Error('The local model runtime has no model. Install one before using chat.'), { exitCode: 1 }));
-    if (!tags.models.includes(model)) fail(Object.assign(new Error(`Requested model is not installed locally: ${model}`), { exitCode: 1 }));
+    if (!model) fail(Object.assign(new Error(`The ${providerName} provider has no model available.`), { exitCode: 1 }));
+    if (!tags.models.includes(model)) fail(Object.assign(new Error(`Requested model is not available from ${providerName}: ${model}`), { exitCode: 1 }));
   }
 
   const controller = createAgentController({
     store,
     provider,
+    providerName,
     engine: createEngine({ store, actor: 'agent' }),
     actor: 'agent',
     maxTurns: config.agentMaxTurns,
@@ -638,6 +643,7 @@ async function main() {
       workspace: flags.workspace,
       skill: flags.skill,
       botId: flags.bot,
+      provider: flags.provider,
       owner: 'cli'
     };
     if (flags.follow && !flags.daemon) fail(Object.assign(new Error('run --follow requires --daemon so the shared task event history can be followed.'), { exitCode: 1 }));
@@ -651,7 +657,7 @@ async function main() {
       if (created.task?.status === 'waiting_approval') return;
       process.exit(1);
     }
-    const started = await daemonRunTask(config, created.task.id, { model: flags.model || undefined, skill: flags.skill || undefined, botId: flags.bot || undefined, background: true });
+    const started = await daemonRunTask(config, created.task.id, { provider: flags.provider || undefined, model: flags.model || undefined, skill: flags.skill || undefined, botId: flags.bot || undefined, background: true });
     if (started.taskId !== created.task.id || started.status !== 'started') fail(Object.assign(new Error('The daemon did not start the task.'), { exitCode: 1 }));
     const followed = await followDaemonTask(config, created.task.id, asJson);
     if (asJson) print(followed, true);
@@ -718,7 +724,7 @@ async function main() {
       const remote = await daemonShow(config, id);
       const remoteTask = remote.task;
       if (!['pending', 'running', 'waiting_approval', 'paused'].includes(remoteTask.status)) fail(Object.assign(new Error(`Cannot resume a task in status "${remoteTask.status}".`), { exitCode: 1 }));
-      const result = await daemonResume(config, id, { model: flags.model || undefined, approvalId: flags.approvalId || undefined, skill: flags.skill || remoteTask.skill || undefined });
+      const result = await daemonResume(config, id, { provider: flags.provider || undefined, model: flags.model || undefined, approvalId: flags.approvalId || undefined, skill: flags.skill || remoteTask.skill || undefined });
       if (asJson) print(result, true);
       else print(result.reply || `${result.status}${result.approvals?.length ? `: approval ${result.approvals[0].id}` : ''}`);
       if (!['completed', 'waiting_approval'].includes(result.status)) process.exit(result.status === 'denied' ? 2 : 1);
@@ -730,7 +736,7 @@ async function main() {
     if (!['pending', 'running', 'waiting_approval', 'paused'].includes(task.status)) {
       fail(Object.assign(new Error(`Cannot resume a task in status "${task.status}".`), { exitCode: 1 }));
     }
-    await runAgent(store, config, { ...flags, taskId: id, workspace: task.workspace, bot: task.botId, skill: flags.skill || task.skill, json: asJson }, task.prompt);
+    await runAgent(store, config, { ...flags, provider: flags.provider || task.provider, taskId: id, workspace: task.workspace, bot: task.botId, skill: flags.skill || task.skill, json: asJson }, task.prompt);
     return;
   }
 

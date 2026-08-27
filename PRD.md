@@ -9,7 +9,7 @@
 
 OpenBot is a free and open-source, self-hostable, local-first autonomous agent platform with a shared agent core, CLI, Linux desktop app, web UI, API, and sandboxed workers. It should perform useful computer, browser, file, and research tasks while keeping deployment, data, model choice, provider credentials, permissions, and audit history under the operator's control.
 
-The current implementation has a bounded local-model agent loop that can execute safe file, shell-diagnostic, and browser-fetch actions through the audited engine, while stopping for approval before consequential work. This PRD defines the path from that first real-work slice to a complete product.
+The current implementation has a bounded local-model agent loop that can execute safe file, shell-diagnostic, and browser-fetch actions through the audited engine, while stopping for approval before consequential work. It also supports an explicitly enabled compatible remote provider through the same policy boundary. This PRD defines the path from that first real-work slice to a complete product.
 
 Current product slice: the dashboard and opt-in CLI follow mode submit durable tasks asynchronously, expose bounded live activity and task controls while work runs, persist the final reply, and retain named-bot conversation history for those runs.
 
@@ -98,6 +98,7 @@ The first meaningful “bot, not control panel” milestone is implemented on th
 - Interrupted tasks left in `running` state can be resumed through the API, CLI, or dashboard without changing their task identity or losing their event history.
 - Operators can select the default native local model protocol or an opt-in chat-completions-compatible local protocol without changing application code; local-only endpoint checks remain enforced.
 - Operators can choose among installed local models for each dashboard task, including resume and approval continuation; an empty choice uses the first model reported by the daemon, and server-side availability checks remain authoritative.
+- Operators can opt into a generic compatible remote provider for a task; the daemon discovers its models, routes structured requests, records the selected provider, and keeps that path disabled in local-only mode by default.
 - Operators can save, list, and delete workspace-scoped local memory; only matching memory is injected into agent context after redaction.
 - Operators can save, list, select, and delete local skills; selected skills are redacted, bounded, audited, and injected only as untrusted guidance under the OpenBot policy.
 - Operators can create, list, pause, enable, run, and audit local routines. The in-process scheduler uses one lightweight timer, caps routines at 50 and run history at 20 per routine, and never auto-approves consequential actions.
