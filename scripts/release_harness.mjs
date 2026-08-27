@@ -90,6 +90,8 @@ async function main() {
   }
   const indexSource = await readFile(join(root, 'public/index.html'), 'utf8');
   const appSource = await readFile(join(root, 'public/app.js'), 'utf8');
+  const cliSource = await readFile(join(root, 'cli/openbot.mjs'), 'utf8');
+  const clientSource = await readFile(join(root, 'lib/client.mjs'), 'utf8');
   if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"') || !indexSource.includes('id="recent-tasks"') || !indexSource.includes('id="memories"') || !indexSource.includes('id="memory-form"') || !indexSource.includes('id="skills"') || !indexSource.includes('id="skill-form"') || !indexSource.includes('id="routine-form"') || !indexSource.includes('id="routine-schedule"') || !indexSource.includes('id="bot"') || !indexSource.includes('id="bot-form"') || !indexSource.includes('id="bot-name"')) throw new Error('dashboard is missing workspace, bot, task history, memory, skill, or routine controls');
   if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/resume') || !appSource.includes('resumeTask') || !appSource.includes('Resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/tasks/') || !appSource.includes('after=') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('/api/routines') || !appSource.includes('/api/bots') || !appSource.includes('Run now') || !appSource.includes('botId') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, recovery, task history, live activity, memory, skills, routines, bots, and audit links');
   if (appSource.includes('e.innerHTML=`')) throw new Error('dashboard renders state with unsafe innerHTML');
@@ -100,6 +102,8 @@ async function main() {
   pass('dashboard exposes bounded task pause and cancel controls');
   if (!appSource.includes('startTask') || !appSource.includes('taskMessages') || !appSource.includes('/run') || !appSource.includes('background')) throw new Error('dashboard does not expose asynchronous durable task execution');
   pass('dashboard exposes asynchronous durable task execution');
+  if (!cliSource.includes('--follow') || !cliSource.includes('daemonRunTask') || !clientSource.includes('daemonCreateTask') || !clientSource.includes('daemonTaskEvents')) throw new Error('CLI does not expose durable task follow mode');
+  pass('CLI exposes durable task follow mode');
   const publicSurfaceFiles = ['README.md', 'PRD.md', 'SECURITY.md', 'CHANGELOG.md', 'cli/openbot.mjs', 'server.mjs', 'lib/config.mjs', 'lib/provider.mjs', 'lib/daemon.mjs', 'lib/client.mjs', 'lib/agent.mjs', 'lib/store.mjs', 'public/index.html', 'public/app.js', 'public/styles.css'];
   const forbiddenPublicBrand = /\b(?:Grok|Ollama|OpenAI|Anthropic|Gemini|Claude|Cursor|Groq)\b|x\.ai/i;
   for (const file of publicSurfaceFiles) {
@@ -691,6 +695,14 @@ async function main() {
       const daemonTasks = JSON.parse((await http('/api/tasks')).body).tasks || [];
       if (!daemonTasks.some((task) => task.prompt === 'Use the shared daemon client.' && task.status === 'completed')) throw new Error('daemon client task was not persisted by the server');
       pass('CLI chat can use the shared daemon and persists server-owned task state');
+      const daemonRunFollow = await runNode([
+        'cli/openbot.mjs', 'run', '--daemon', '--follow', '--model', 'fixture-async', '--workspace', agentWs, '--json', 'Follow the shared durable task.'
+      ], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1', PORT: String(port), OPENBOT_DAEMON_URL: base }, { timeoutMs: 20000 });
+      const daemonRunFollowJson = parseCliJson(daemonRunFollow.output);
+      if (daemonRunFollow.code !== 0 || daemonRunFollowJson.task?.status !== 'completed' || daemonRunFollowJson.task?.prompt !== 'Follow the shared durable task.' || daemonRunFollowJson.task?.result !== 'The asynchronous task completed.' || !Array.isArray(daemonRunFollowJson.events) || !daemonRunFollowJson.events.length) {
+        throw new Error(`daemon CLI run follow: ${daemonRunFollow.output}`);
+      }
+      pass('CLI run can start a durable task and follow its event history');
       const isolatedDaemonEnv = { OPENBOT_DATA_DIR: clientDataDir, HOST: '127.0.0.1', PORT: String(port), OPENBOT_DAEMON_URL: base };
       const daemonListCli = await runNode(['cli/openbot.mjs', 'list', '--daemon', '--json'], isolatedDaemonEnv);
       const daemonListJson = JSON.parse(daemonListCli.output.trim());

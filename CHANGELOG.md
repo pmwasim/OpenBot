@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.17 — 2026-08-27
+
+Added lightweight CLI execution and follow mode.
+
+- Add `run --daemon --follow` to start a durable task through the local daemon and follow its bounded event history.
+- Return the final persisted task and event records in JSON mode, while human-readable mode reports bounded event milestones on stderr.
+- Keep the existing create-only `run` behavior and all task, workspace, approval, cancellation, and resource limits intact unless `--follow` is explicitly selected.
+- Add daemon client helpers and end-to-end CLI coverage for asynchronous task execution.
+
 ## 0.4.16 — 2026-08-27
 
 Completed in-flight cancellation hardening.

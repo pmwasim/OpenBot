@@ -25,6 +25,7 @@ OpenBot is a free, open-source, local-first bot that turns a task into bounded, 
 - In-flight worker cancellation is covered end to end through the daemon, including cancellation during model work and child-process cleanup.
 - Asynchronous dashboard execution: the dashboard creates a durable task, returns immediately, watches bounded activity, and renders the persisted final result while pause, resume, cancel, and audit controls remain available.
 - Named-bot tasks started asynchronously retain the same bounded conversation history as direct bot chat.
+- CLI durable follow mode: `run --daemon --follow` starts a durable task and follows its bounded event history until completion, approval, pause, cancellation, or failure; `run` without `--follow` remains create-only.
 - Daemon-routed CLI task management: `list`, `show`, `logs`, `approve`, and `reject` can inspect or change server-owned task state without a second local store.
 - Daemon-routed task control: `pause`, `resume`, and `cancel` can control server-owned work while preserving durable status transitions and the bounded agent loop.
 - Daemon-routed administration: `memory`, `skill`, `bot`, and `routine` commands can manage server-owned state without a second local store; named-bot chat and routine Run now use the shared daemon loop.
@@ -52,6 +53,7 @@ node cli/openbot.mjs routine add --title "Workspace review" --schedule "daily 09
 node cli/openbot.mjs start --detach --json
 node cli/openbot.mjs desktop --json
 node cli/openbot.mjs desktop --no-open --json
+node cli/openbot.mjs run --daemon --follow --workspace /path/to/project "Review the project and report risks."
 node cli/openbot.mjs service info --json
 node cli/openbot.mjs service install --dry-run --json
 node cli/openbot.mjs status --json

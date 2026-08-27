@@ -11,7 +11,7 @@ OpenBot is a free and open-source, self-hostable, local-first autonomous agent p
 
 The current implementation has a bounded local-model agent loop that can execute safe file, shell-diagnostic, and browser-fetch actions through the audited engine, while stopping for approval before consequential work. This PRD defines the path from that first real-work slice to a complete product.
 
-Current product slice: the dashboard submits durable tasks asynchronously, exposes bounded activity and task controls while work runs, persists the final reply, and retains named-bot conversation history for those runs.
+Current product slice: the dashboard and opt-in CLI follow mode submit durable tasks asynchronously, expose bounded activity and task controls while work runs, persist the final reply, and retain named-bot conversation history for those runs.
 
 ## 2. Evidence and competitive context
 
@@ -160,7 +160,7 @@ Provide `start`, `run`, `list`, `show`, `approve`, `reject`, `pause`, `cancel`, 
 
 Acceptance criteria:
 
-- `openbot run` can submit a task and stream events.
+- `openbot run --daemon --follow` can submit a task and follow its bounded event history; create-only task submission remains available without `--follow`.
 - Approval and cancellation work without opening the desktop app.
 - CLI returns non-zero exit codes for failed, rejected, or unavailable tasks.
 

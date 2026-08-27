@@ -13,7 +13,7 @@ import { daemonStatus, startDaemon, stopDaemon } from '../lib/daemon.mjs';
 import { launchDesktop } from '../lib/desktop.mjs';
 import { installService, serviceInfo, uninstallService } from '../lib/service.mjs';
 import {
-  daemonBot, daemonBots, daemonChat, daemonControlTask, daemonCreateBot, daemonCreateMemory, daemonCreateRoutine, daemonCreateSkill, daemonUpdateBot,
+  daemonBot, daemonBots, daemonChat, daemonControlTask, daemonCreateBot, daemonCreateMemory, daemonCreateRoutine, daemonCreateSkill, daemonCreateTask, daemonRunTask, daemonTaskEvents, daemonUpdateBot,
   daemonDecideApproval, daemonDeleteBot, daemonDeleteMemory, daemonDeleteSkill, daemonList, daemonLogs, daemonMemories, daemonResume, daemonUpdateMemory,
   daemonRoutine, daemonRoutines, daemonRunRoutine, daemonShow, daemonSkill, daemonSkills, daemonState, daemonUpdateRoutine, daemonUpdateSkill
 } from '../lib/client.mjs';
@@ -30,7 +30,7 @@ Commands:
   service uninstall  Disable and remove the user-level daemon service
   status             Show local daemon status
   stop               Stop the local daemon
-  run <prompt>       Create a task
+  run <prompt>       Create a task (use --daemon --follow to execute and watch it)
   chat <prompt>      Run the bounded local agent loop
   propose            Propose a worker action (file/shell/browser)
   execute <id>       Execute an allowed or approved action
@@ -70,6 +70,7 @@ Options:
   --no-open          Start the desktop launcher without opening a browser
   --dry-run          Print service changes without writing or installing them
   --daemon           Send supported chat and task commands through the local daemon
+  --follow           Start a daemon task and follow its bounded event history to completion
   --kind <kind>      Task or action kind (plan, file.write, shell.exec, browser.visit, ...)
   --model <name>     Local model name (defaults to the first installed model)
   --key <name>       Memory key for memory add
@@ -129,6 +130,7 @@ function parseArgs(argv) {
     else if (arg === '--no-open') flags.noOpen = true;
     else if (arg === '--dry-run') flags.dryRun = true;
     else if (arg === '--daemon') flags.daemon = true;
+    else if (arg === '--follow') flags.follow = true;
     else if (arg === '--help' || arg === '-h') flags.help = true;
     else if (arg.startsWith('--') && arg.includes('=')) {
       const eq = arg.indexOf('=');
@@ -160,6 +162,34 @@ function fail(error) {
   const message = error && error.message ? error.message : String(error);
   console.error(message);
   process.exit(error && error.exitCode ? error.exitCode : 1);
+}
+
+function taskIsFollowComplete(status) {
+  return ['completed', 'failed', 'cancelled', 'paused', 'waiting_approval'].includes(String(status || '').toLowerCase());
+}
+
+function printTaskEvent(event) {
+  const payload = event?.payload || {};
+  const status = payload.status ? ` (${payload.status})` : '';
+  console.error(`[${event?.seq || '?'}] ${event?.type || 'task.event'}${status}`);
+}
+
+async function followDaemonTask(config, taskId, asJson) {
+  const events = [];
+  let after = 0;
+  let snapshot = null;
+  while (true) {
+    const update = await daemonTaskEvents(config, taskId, after);
+    snapshot = update.task || snapshot;
+    for (const event of update.events || []) {
+      events.push(event);
+      if (!asJson) printTaskEvent(event);
+    }
+    const next = Number(update.nextSeq);
+    if (Number.isSafeInteger(next) && next >= after) after = next;
+    if (taskIsFollowComplete(snapshot?.status)) return { task: snapshot, events };
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
 }
 
 async function resolveApprovalId(store, id, actionId) {
@@ -601,14 +631,32 @@ async function main() {
   if (command === 'run') {
     const prompt = positional.slice(1).join(' ').trim();
     if (!prompt) fail(Object.assign(new Error('run requires a prompt.'), { exitCode: 1 }));
-    const created = await store.createTask({
+    const payload = {
       prompt,
       kind: flags.kind || 'plan',
       title: flags.title,
       workspace: flags.workspace,
-      skill: flags.skill
-    });
-    print(created, true);
+      skill: flags.skill,
+      botId: flags.bot,
+      owner: 'cli'
+    };
+    if (flags.follow && !flags.daemon) fail(Object.assign(new Error('run --follow requires --daemon so the shared task event history can be followed.'), { exitCode: 1 }));
+    const created = flags.daemon ? await daemonCreateTask(config, payload) : await store.createTask(payload);
+    if (!flags.follow) {
+      print(created, true);
+      return;
+    }
+    if (created.task?.status !== 'pending') {
+      print(created, true);
+      if (created.task?.status === 'waiting_approval') return;
+      process.exit(1);
+    }
+    const started = await daemonRunTask(config, created.task.id, { model: flags.model || undefined, skill: flags.skill || undefined, botId: flags.bot || undefined, background: true });
+    if (started.taskId !== created.task.id || started.status !== 'started') fail(Object.assign(new Error('The daemon did not start the task.'), { exitCode: 1 }));
+    const followed = await followDaemonTask(config, created.task.id, asJson);
+    if (asJson) print(followed, true);
+    else print(followed.task?.result || `${followed.task?.status}${followed.task?.error ? `: ${followed.task.error}` : ''}`);
+    if (!['completed', 'waiting_approval'].includes(followed.task?.status)) process.exit(followed.task?.status === 'cancelled' ? 2 : 1);
     return;
   }
 
