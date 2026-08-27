@@ -36,6 +36,7 @@ OpenBot is a free, open-source, local-first bot that turns a task into bounded, 
 - CLI result parity: `result <task-id>` reads the concise result locally, while `result --daemon <task-id>` reads the same contract from the shared daemon; result fields are redacted and size-bounded.
 - Typed task artifacts: successful file and browser actions appear in a capped inventory at `/api/tasks/:id/artifacts`; the dashboard and `artifacts <task-id>` CLI command expose that inventory, and a selected workspace-relative artifact can be previewed through the bounded artifact route.
 - Persistent named-bot conversations: selecting a named bot in the dashboard loads its bounded durable history, completed bot tasks refresh that history, and `bot history <id>` exposes the same redacted conversation through the local or shared-daemon CLI.
+- Searchable named-bot conversations: filter the selected bot's bounded history in the dashboard or with `bot history <id> --query <text>`; search terms and returned messages remain length-bounded.
 - Opt-in browser research hosts: `OPENBOT_BROWSER_ALLOW_HOSTS` adds exact operator-approved hosts beyond the loopback default; redirects are disabled and browser saves remain approval-gated and workspace-contained.
 - Operator-owned local connectors: register and edit read-only HTTP endpoints with an exact host allowlist, explicit path allowlist, bounded responses, disabled redirects, and approval before every fetch; connectors are available through the API, dashboard, CLI, and agent tool contract.
 - Daemon-routed CLI task management: `list`, `show`, `logs`, `approve`, and `reject` can inspect or change server-owned task state without a second local store.
@@ -59,6 +60,7 @@ node cli/openbot.mjs bot add --name "Release steward" --role "Review local relea
 node cli/openbot.mjs bot update <bot-id> --role "Review and summarize local work" --json
 node cli/openbot.mjs bot list --json
 node cli/openbot.mjs bot history <bot-id> --json
+node cli/openbot.mjs bot history <bot-id> --query "release" --json
 node cli/openbot.mjs connector add --name health --base-url http://127.0.0.1:4178/ --allowed-paths /api/health --json
 node cli/openbot.mjs connector list --json
 node cli/openbot.mjs connector update <connector-id> --disabled --json
@@ -98,6 +100,8 @@ The current release is a real local bot loop with durable named bots, persistent
 `start --detach` keeps the daemon running after the terminal closes and writes its process record and runtime log under `OPENBOT_DATA_DIR` (default: `data/`). Use `status` to check the daemon and local model health, and `stop` for a clean shutdown. This is host-local background execution: shutting down or sleeping the laptop stops local work.
 
 Add `--daemon` to `chat`, `list`, `show`, `logs`, `approve`, `reject`, `pause`, `resume`, `cancel`, `memory`, `skill`, `bot`, or `routine` after starting the daemon to use the shared local HTTP service. This keeps task, approval, audit history, routines, bots, skills, memory, and dashboard state in the daemon process; the CLI does not need a second populated local store for those commands. The optional `OPENBOT_DAEMON_URL` environment variable selects an explicitly configured daemon endpoint; when LAN access is enabled, `OPENBOT_AUTH_TOKEN` is sent as its bearer credential.
+
+Use `bot history <bot-id> --query <text>` to search a named bot's recent durable messages. The same bounded search is available in the dashboard and at `GET /api/bots/:id/messages?q=<text>`.
 
 Use `node cli/openbot.mjs desktop` when you want a one-command graphical entry point. It starts or reuses the detached daemon and opens the dashboard with the platform's existing browser launcher. `--no-open` starts the daemon and prints the URL without launching a browser.
 

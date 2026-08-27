@@ -11,6 +11,24 @@ const skillSelect = document.querySelector('#skill');
 const botSelect = document.querySelector('#bot');
 const providerSelect = document.querySelector('#provider');
 const modelSelect = document.querySelector('#model');
+const conversationSearch = (() => {
+  const existing = document.querySelector('#conversation-search');
+  if (existing) return existing;
+  const bar = element('div', 'conversation-search');
+  const input = element('input');
+  input.id = 'conversation-search';
+  input.placeholder = 'Search selected bot history';
+  input.autocomplete = 'off';
+  const search = element('button', 'text', 'Search history');
+  search.id = 'conversation-search-button';
+  search.type = 'button';
+  const clear = element('button', 'text', 'Clear');
+  clear.id = 'conversation-search-clear';
+  clear.type = 'button';
+  bar.append(input, search, clear);
+  botSelect?.after(bar);
+  return input;
+})();
 let botProfiles = new Map();
 let providerProfiles = new Map();
 let modelName = '';
@@ -142,13 +160,14 @@ function renderBotConversation(bot, messages) {
   }
 }
 
-async function loadBotConversation(id) {
+async function loadBotConversation(id, query = conversationSearch.value.trim()) {
   const requestId = ++conversationRequest;
   if (!id) {
     renderBotConversation(null, []);
     return;
   }
-  const response = await fetch(`/api/bots/${encodeURIComponent(id)}/messages`);
+  const suffix = query ? `?q=${encodeURIComponent(query)}` : '';
+  const response = await fetch(`/api/bots/${encodeURIComponent(id)}/messages${suffix}`);
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Bot conversation could not be loaded.');
   if (requestId !== conversationRequest || botSelect.value !== id) return;
@@ -828,6 +847,18 @@ botSelect.addEventListener('change', () => {
   const selected = botProfiles.get(botSelect.value);
   if (selected?.workspace && !workspace.value.trim()) workspace.value = selected.workspace;
   void loadBotConversation(botSelect.value).catch((error) => addMessage('error', 'OpenBot', error.message || 'Bot conversation could not be loaded.'));
+});
+document.querySelector('#conversation-search-button')?.addEventListener('click', () => {
+  void loadBotConversation(botSelect.value, conversationSearch.value.trim()).catch((error) => addMessage('error', 'OpenBot', error.message || 'Conversation search failed.'));
+});
+document.querySelector('#conversation-search-clear')?.addEventListener('click', () => {
+  conversationSearch.value = '';
+  void loadBotConversation(botSelect.value, '').catch(() => {});
+});
+conversationSearch.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter') return;
+  event.preventDefault();
+  document.querySelector('#conversation-search-button')?.click();
 });
 
 modelSelect.addEventListener('change', updateModelLabel);

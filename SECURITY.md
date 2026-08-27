@@ -18,4 +18,6 @@ Local connectors are read-only operator-owned HTTP definitions. Each connector r
 
 Local skills are declarative operator-owned text, not executable plugins. Skill content is length-limited and redacted before persistence, is injected only when explicitly selected, and is treated as untrusted guidance beneath the OpenBot system policy. Skills cannot add tools, grant permissions, cross workspace boundaries, or bypass approval gates.
 
+Named-bot conversation search accepts only a bounded text query, filters the bot's already bounded message history, and returns the same redacted message fields as ordinary history. It does not search other bots, task events, or workspace files.
+
 Resource selection is local configuration only. `OPENBOT_RESOURCE_PROFILE=auto` chooses the bounded `legacy` profile at 2 or fewer logical CPUs or below 8 GiB RAM; otherwise it chooses `standard`. The selected profile changes agent turn/action/context limits and defaults isolation to host-local mode for the low-resource profile. Operators can explicitly set `legacy`, `standard`, or `OPENBOT_ISOLATION`; this setting does not install software, contact a remote service, or guarantee local-model performance.

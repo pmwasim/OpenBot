@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.33 — 2026-08-27
+
+Added bounded search for persistent named-bot conversations.
+
+- Filter recent bot messages in the dashboard, API, or `openbot bot history <id> --query <text>` without exposing other bots, task events, or workspace files.
+- Bound search terms to 120 characters and preserve the existing 40-message history cap, redaction, local-first operation, zero mandatory spend, and brand-neutral public surfaces.
+
 ## 0.4.32 — 2026-08-27
 
 Added transparent automatic resource selection for older laptops.

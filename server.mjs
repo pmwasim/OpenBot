@@ -352,8 +352,9 @@ const app = http.createServer(async (req, res) => {
     }
     if (url.pathname.startsWith('/api/bots/') && url.pathname.endsWith('/messages') && req.method === 'GET') {
       const id = decodeURIComponent(url.pathname.slice('/api/bots/'.length, -'/messages'.length));
-      const messages = await store.listBotMessages(id);
-      return messages ? json(res, 200, { botId: id, messages }) : json(res, 404, { error: 'Bot not found.' });
+      const query = url.searchParams.get('q') || '';
+      const messages = await store.listBotMessages(id, { query });
+      return messages ? json(res, 200, { botId: id, query: query.trim(), messages }) : json(res, 404, { error: 'Bot not found.' });
     }
     if (url.pathname.startsWith('/api/bots/') && req.method === 'GET') {
       const id = decodeURIComponent(url.pathname.slice('/api/bots/'.length));

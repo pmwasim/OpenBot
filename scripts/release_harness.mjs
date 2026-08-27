@@ -134,6 +134,8 @@ async function main() {
   pass('CLI exposes typed task artifacts locally and through the daemon');
   if (!cliSource.includes("subcommand === 'history'") || !cliSource.includes('daemonBotMessages') || !clientSource.includes('daemonBotMessages')) throw new Error('CLI does not expose named bot conversation history');
   pass('CLI exposes named bot conversation history locally and through the daemon');
+  if (!serverSource.includes("searchParams.get('q')") || !clientSource.includes('query') || !appSource.includes('conversation-search')) throw new Error('conversation search is not exposed across clients');
+  pass('conversation search is exposed across clients');
   if (!serverSource.includes('TASK_RESULT_LIMITS') && !await readFile(join(root, 'lib/task-result.mjs'), 'utf8').then((source) => source.includes('maxActionResultChars'))) throw new Error('task result payloads are not size-bounded');
   if (!cliSource.includes('--provider') || !cliSource.includes('provider: flags.provider')) throw new Error('CLI does not expose explicit provider selection');
   pass('CLI exposes explicit provider selection');
@@ -485,6 +487,8 @@ async function main() {
     if (!savedBot.bot?.id || savedBot.bot.name !== 'Release steward' || savedBot.bot.workspace !== '/tmp/agent-harness') throw new Error('bot creation');
     await freshStore.recordBotMessage(savedBot.bot.id, { role: 'user', content: 'Review the workspace.', taskId: 'task-bot-1' });
     await freshStore.recordBotMessage(savedBot.bot.id, { role: 'assistant', content: 'I will review it.', taskId: 'task-bot-1' });
+    const filteredBotMessages = await freshStore.listBotMessages(savedBot.bot.id, { query: 'workspace' });
+    if (filteredBotMessages.length !== 1 || filteredBotMessages[0].role !== 'user') throw new Error('bot conversation search');
     const reopenedBot = await (await openStore({ dataDir: freshDataDir })).getBot(savedBot.bot.id);
     if (!reopenedBot || reopenedBot.messages.length !== 2 || reopenedBot.messages[0].role !== 'user') throw new Error('bot persistence or conversation history');
     pass('named bots persist bounded profiles and conversation history');
@@ -768,6 +772,12 @@ async function main() {
       const botMessagesBody = JSON.parse(botMessages.body);
       if (botMessages.status !== 200 || botMessagesBody.botId !== botCreateBody.bot.id || botMessagesBody.messages?.length !== 2 || botMessagesBody.messages?.[0]?.content !== 'Review the workspace.' || botMessagesBody.messages?.[1]?.role !== 'assistant') throw new Error(`bot messages ${botMessages.status} ${botMessages.body}`);
       pass('named bot conversation history is readable as a bounded client contract');
+      const filteredBotMessages = await http(`/api/bots/${encodeURIComponent(botCreateBody.bot.id)}/messages?q=workspace`);
+      const filteredBotMessagesBody = JSON.parse(filteredBotMessages.body);
+      if (filteredBotMessages.status !== 200 || filteredBotMessagesBody.query !== 'workspace' || filteredBotMessagesBody.messages?.length !== 1 || filteredBotMessagesBody.messages?.[0]?.role !== 'user') throw new Error(`bot message search ${filteredBotMessages.status} ${filteredBotMessages.body}`);
+      const oversizedBotQuery = await http(`/api/bots/${encodeURIComponent(botCreateBody.bot.id)}/messages?q=${'x'.repeat(121)}`);
+      if (oversizedBotQuery.status !== 400) throw new Error(`bot message query bound ${oversizedBotQuery.status}`);
+      pass('named bot conversation search is bounded and server-authoritative');
       const namedAsyncCreate = await http('/api/tasks', { method: 'POST', body: JSON.stringify({ prompt: 'Run the named bot asynchronously.', kind: 'plan', workspace: agentWs, owner: 'dashboard', botId: botCreateBody.bot.id }) });
       const namedAsyncCreateBody = JSON.parse(namedAsyncCreate.body);
       const namedAsyncRun = await http(`/api/tasks/${encodeURIComponent(namedAsyncCreateBody.task.id)}/run`, { method: 'POST', body: JSON.stringify({ model: 'fixture-async', background: true }) });

@@ -91,6 +91,7 @@ Options:
   --instructions <t> Skill instructions for skill add
   --skill <name>     Select a local skill for chat
   --bot <id>         Select a named local bot
+  --query <text>     Filter named bot conversation history
   --schedule <value> Routine schedule (every 15m or daily 09:30)
   --workspace <dir>  Task workspace directory
   --task <id>        Task id for propose
@@ -136,6 +137,7 @@ const VALUE_FLAGS = {
   '--instructions': 'instructions',
   '--skill': 'skill',
   '--bot': 'bot',
+  '--query': 'query',
   '--schedule': 'schedule'
 };
 
@@ -578,7 +580,7 @@ async function main() {
     if (subcommand === 'history') {
       const id = positional[2];
       if (!id) fail(Object.assign(new Error('Bot id is required.'), { exitCode: 1 }));
-      const messages = flags.daemon ? (await daemonBotMessages(config, id)).messages : await store.listBotMessages(id);
+      const messages = flags.daemon ? (await daemonBotMessages(config, id, flags.query)).messages : await store.listBotMessages(id, { query: flags.query });
       if (!messages) fail(Object.assign(new Error('Bot not found.'), { exitCode: 1 }));
       print({ botId: id, messages }, true);
       return;
