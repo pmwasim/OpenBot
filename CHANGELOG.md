@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.29 — 2026-08-27
+
+Clarified the browser network security boundary for the v0.4.28 research-host capability.
+
+- Document exact host configuration, loopback defaults, redirect/credential restrictions, approval behavior, and operator DNS/network responsibility in `SECURITY.md`.
+- Preserve zero mandatory spend, old-laptop portability, local-first defaults, and brand-neutral public surfaces.
+
 ## 0.4.28 — 2026-08-27
 
 Added opt-in browser research hosts while preserving the local-first boundary.
