@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.2 — 2026-08-27
+
+Added lightweight persistent memory and protected LAN mode for local teammates.
+
+- Operator-controlled memory facts are stored locally and scoped to an explicit workspace.
+- Matching memory is supplied to the agent without embeddings, background services, or cloud calls.
+- Memory is manageable through the dashboard, HTTP API, and CLI.
+- Credential-like values are redacted before persistence and model context.
+- Non-loopback mode refuses startup without `OPENBOT_AUTH_TOKEN` and requires a bearer token on every request.
+- Added live authorization regression coverage and repository security guidance.
+- Release harness coverage expanded to 59 checks.
+
 ## 0.3.1 — 2026-08-27
 
 Usability follow-up for persistent local work and older laptops.

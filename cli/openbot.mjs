@@ -30,11 +30,16 @@ Commands:
   export <task-id>   Export an append-only audit bundle
   doctor             Check loopback, Ollama, store, and isolation
   config             Show local configuration
+  memory list        List workspace-scoped local memory
+  memory add         Save an operator-approved memory fact
+  memory delete      Delete a local memory fact
 
 Options:
   --json             Print machine-readable JSON
   --kind <kind>      Task or action kind (plan, file.write, shell.exec, browser.visit, ...)
   --model <name>     Local Ollama model (defaults to the first installed model)
+  --key <name>       Memory key for memory add
+  --value <text>     Memory value for memory add
   --workspace <dir>  Task workspace directory
   --task <id>        Task id for propose
   --path <path>      Workspace-relative file path
@@ -61,7 +66,9 @@ const VALUE_FLAGS = {
   '--approval': 'approvalId',
   '--task': 'taskId',
   '--action': 'actionId',
-  '--model': 'model'
+  '--model': 'model',
+  '--key': 'key',
+  '--value': 'value'
 };
 
 function parseArgs(argv) {
@@ -221,7 +228,7 @@ async function main() {
     try {
       const bind = assertBindHost(config.host, process.env);
       if (bind.overridden) {
-        console.warn(`WARNING: HOST=${config.host} is not loopback. OpenBot preview has no authentication. OPENBOT_ALLOW_NON_LOOPBACK=1 is set.`);
+        console.warn(`WARNING: HOST=${config.host} is protected by OPENBOT_AUTH_TOKEN; requests require a bearer token.`);
       }
     } catch (error) {
       fail(error);
@@ -241,7 +248,7 @@ async function main() {
       const bind = assertBindHost(config.host, process.env);
       checks.push({ name: 'loopback', ok: true, host: bind.host, overridden: bind.overridden });
       if (bind.overridden) {
-        console.warn(`WARNING: HOST=${config.host} is not loopback. OPENBOT_ALLOW_NON_LOOPBACK=1 is set.`);
+        console.warn(`WARNING: HOST=${config.host} is protected by OPENBOT_AUTH_TOKEN; requests require a bearer token.`);
       }
     } catch (error) {
       checks.push({ name: 'loopback', ok: false, error: error.message, loopback: isLoopbackHost(config.host) });
@@ -289,6 +296,28 @@ async function main() {
   }
 
   const store = await openStore({ dataDir: config.dataDir });
+
+  if (command === 'memory') {
+    const subcommand = positional[1];
+    if (subcommand === 'list') {
+      if (!flags.workspace || flags.workspace === 'local') fail(Object.assign(new Error('Workspace is required (--workspace).'), { exitCode: 1 }));
+      print({ memories: await store.listMemories({ workspace: flags.workspace }) }, true);
+      return;
+    }
+    if (subcommand === 'add') {
+      if (!flags.workspace || flags.workspace === 'local') fail(Object.assign(new Error('Workspace is required (--workspace).'), { exitCode: 1 }));
+      const created = await store.createMemory({ workspace: flags.workspace, key: flags.key, value: flags.value });
+      print(created, true);
+      return;
+    }
+    if (subcommand === 'delete') {
+      const id = positional[2];
+      if (!id) fail(Object.assign(new Error('Memory id is required.'), { exitCode: 1 }));
+      print(await store.deleteMemory(id), true);
+      return;
+    }
+    fail(Object.assign(new Error('Use memory list, memory add, or memory delete.'), { exitCode: 1 }));
+  }
 
   if (command === 'run') {
     const prompt = positional.slice(1).join(' ').trim();

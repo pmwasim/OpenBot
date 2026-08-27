@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { loadConfig } from './lib/config.mjs';
-import { assertBindHost } from './lib/loopback.mjs';
+import { assertBindHost, hasBearerToken } from './lib/loopback.mjs';
 import { createProviderHub } from './lib/provider.mjs';
 import { openStore } from './lib/store.mjs';
 import { createEngine } from './lib/engine.mjs';
@@ -26,9 +26,11 @@ try {
   console.error(error.message);
   process.exit(1);
 }
-if (bind.overridden) {
-  console.warn(`WARNING: HOST=${config.host} is not loopback. OpenBot preview has no authentication. OPENBOT_ALLOW_NON_LOOPBACK=1 is set.`);
+if (bind.overridden && !process.env.OPENBOT_AUTH_TOKEN) {
+  console.error('Refusing protected LAN mode without OPENBOT_AUTH_TOKEN. Keep OpenBot on loopback or set a strong local bearer token.');
+  process.exit(1);
 }
+if (bind.overridden) console.warn(`WARNING: HOST=${config.host} is not loopback. Every request requires Authorization: Bearer <OPENBOT_AUTH_TOKEN>.`);
 
 const store = await openStore({ dataDir: config.dataDir });
 const providers = createProviderHub(process.env, { ollamaUrl: config.ollamaUrl });
@@ -106,6 +108,7 @@ async function body(req) {
 
 const app = http.createServer(async (req, res) => {
   try {
+    if (bind.overridden && !hasBearerToken(req, process.env.OPENBOT_AUTH_TOKEN)) return json(res, 401, { error: 'Authentication required.' });
     const url = new URL(req.url, `http://${req.headers.host}`);
     if (url.pathname === '/api/state' && req.method === 'GET') return json(res, 200, await store.getState());
     if (url.pathname === '/api/health' && req.method === 'GET') {
@@ -122,6 +125,19 @@ const app = http.createServer(async (req, res) => {
       if (typeof payload.prompt !== 'string' || !payload.prompt.trim()) return json(res, 400, { error: 'A task prompt is required.' });
       const created = await store.createTask(payload);
       return json(res, 200, created);
+    }
+    if (url.pathname === '/api/memories' && req.method === 'GET') {
+      const workspace = url.searchParams.get('workspace');
+      if (!workspace || workspace === 'local') return json(res, 400, { error: 'An explicit workspace path is required for memory.' });
+      return json(res, 200, { memories: await store.listMemories({ workspace }) });
+    }
+    if (url.pathname === '/api/memories' && req.method === 'POST') {
+      const payload = await body(req);
+      return json(res, 200, await store.createMemory(payload));
+    }
+    if (url.pathname.startsWith('/api/memories/') && req.method === 'DELETE') {
+      const id = url.pathname.slice('/api/memories/'.length);
+      return json(res, 200, await store.deleteMemory(id));
     }
     if (url.pathname.startsWith('/api/tasks/') && req.method === 'GET') {
       const rest = url.pathname.slice('/api/tasks/'.length);

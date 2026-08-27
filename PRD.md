@@ -79,8 +79,8 @@ OpenBot should provide a practical middle path: real work through isolated worke
 - The local agent loop is bounded and structured, but it supports only the first-party file/shell/browser tool set and one task at a time.
 - Approval records are now attached to proposed actions and diffs, but the dashboard does not yet resume an agent automatically after approval.
 - Routines are displayed but cannot be created, scheduled, executed, paused, or retried.
-- No authentication, authorization, CSRF protection, rate limiting, or multi-user boundary exists.
-- Provider credentials, OAuth, model routing, MCP, skills, plugins, memory, and audit replay are absent.
+- No multi-user authorization, CSRF protection, or rate limiting exists; explicit non-loopback mode now requires a shared bearer token.
+- Provider credentials, OAuth, model routing, MCP, skills, plugins, routines, collaboration, and audit replay are absent or incomplete.
 - State is a single JSON file; concurrent writes, corruption recovery, migrations, and retention are not handled.
 - The HTTP server is suitable for a local prototype only; it must not be exposed to a LAN or internet before hardening.
 - CPU-only legacy mode is supported for core administration and allowlisted diagnostics; natural-language reasoning still depends on an installed local model and may be too slow for some older laptops.
@@ -93,10 +93,11 @@ The first meaningful “bot, not control panel” milestone is implemented on th
 - `/api/chat`, `openbot chat`, and the dashboard use the same controller and existing policy/engine boundary.
 - Safe reads/diagnostics execute automatically; writes, deletion, publishing, external communication, and other consequential effects stop with explicit approval.
 - Model context, action results, approval details, and persisted audit events are redacted and bounded.
-- The release harness covers 52 checks, including malformed model output, approval stop, low-resource execution, CLI/API flows, task history, UI safety, workspace containment, and audit redaction.
+- The release harness covers 58 checks, including malformed model output, approval stop, low-resource execution, CLI/API flows, task history, memory, UI safety, workspace containment, LAN authentication, and audit redaction.
 - The dashboard shows recent durable tasks with audit links, and `doctor --json` explains the low-resource profile without requiring a model.
+- Operators can save, list, and delete workspace-scoped local memory; only matching memory is injected into agent context after redaction.
 
-This is not a claim of Grok Bot parity. Grok Bot's managed cloud computer, persistent shared environment, connectors/MCP, skills, routines, memory, and collaboration remain OpenBot roadmap items. OpenBot's differentiator is local ownership, zero mandatory spend, and inspectable policy/audit behavior.
+This is not a claim of Grok Bot parity. Grok Bot's managed cloud computer, persistent shared environment, connectors/MCP, skills, routines, and collaboration remain OpenBot roadmap items; OpenBot currently provides only scoped operator-controlled local memory. OpenBot's differentiator is local ownership, zero mandatory spend, and inspectable policy/audit behavior.
 
 ## 8. User stories
 
