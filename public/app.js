@@ -527,6 +527,19 @@ function renderRoutines(routines) {
   }
 }
 
+function editConnector(connector, card) {
+  renderEditor(card, [
+    { key: 'name', label: 'Name', value: connector.name, required: true },
+    { key: 'description', label: 'Description', value: connector.description },
+    { key: 'baseUrl', label: 'Base URL', value: connector.baseUrl, required: true },
+    { key: 'allowedPaths', label: 'Allowed paths', value: connector.allowedPaths.join(', '), required: true }
+  ], async (values) => {
+    values.allowedPaths = values.allowedPaths.split(',').map((path) => path.trim()).filter(Boolean);
+    await patchRecord(`/api/connectors/${encodeURIComponent(connector.id)}`, values);
+    await loadConnectors();
+  }, () => loadConnectors().catch(() => {}));
+}
+
 function renderConnectors(connectors) {
   const container = document.querySelector('#connectors');
   container.replaceChildren();
@@ -537,6 +550,8 @@ function renderConnectors(connectors) {
       element('b', '', connector.name),
       element('small', '', `${connector.baseUrl} · ${connector.allowedPaths.join(', ')} · ${connector.enabled ? 'enabled' : 'paused'} · tool: connector.fetch`)
     );
+    const edit = element('button', 'text', 'Edit');
+    edit.addEventListener('click', () => editConnector(connector, card));
     const toggle = element('button', 'text', connector.enabled ? 'Pause' : 'Enable');
     toggle.addEventListener('click', async () => {
       toggle.disabled = true;
@@ -561,7 +576,7 @@ function renderConnectors(connectors) {
         remove.disabled = false;
       }
     });
-    card.append(details, toggle, remove);
+    card.append(details, edit, toggle, remove);
     container.append(card);
   }
 }

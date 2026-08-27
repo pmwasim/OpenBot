@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.31 — 2026-08-27
+
+Closed the connector management usability gap.
+
+- Add in-place dashboard editing for connector name, description, base URL, and allowed paths while preserving connector identity and the existing validation/approval boundary.
+- Preserve loopback defaults, exact host/path controls, zero mandatory spend, old-laptop portability, and brand-neutral public surfaces.
+
 ## 0.4.30 — 2026-08-27
 
 Added safe operator-owned local connectors for real bot extensibility.
