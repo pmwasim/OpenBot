@@ -84,6 +84,7 @@ OpenBot should provide a practical middle path: real work through isolated worke
 - State uses an append-only JSONL event log with a lock and legacy migration path; retention, multi-process recovery policy, and encrypted-at-rest storage remain future work.
 - The HTTP server remains intended for local operation; explicitly enabled LAN mode requires a shared bearer token, and public-internet exposure is outside the supported boundary.
 - CPU-only legacy mode is supported for core administration and allowlisted diagnostics; `OPENBOT_RESOURCE_PROFILE=auto` can select it at 2 or fewer logical CPUs or below 8 GiB RAM, while explicit `legacy` and `standard` overrides remain available. Natural-language reasoning still depends on an installed local model and may be too slow for some older laptops.
+- Daemon task admission is bounded by the selected resource profile: legacy permits one active task and four waiting tasks, while standard permits two active tasks and eight waiting tasks; queue-full submissions are rejected with an explicit bounded response.
 
 ### Current real-work slice
 
@@ -127,6 +128,7 @@ The first meaningful “bot, not control panel” milestone is implemented on th
 - Operators can edit bot role/instructions, local skill definitions, and workspace-scoped memory facts from the dashboard without losing durable identity, bot/routine references, or memory scope.
 - Operators can pause, resume, or cancel controllable tasks from recent-task dashboard cards, with durable status transitions and refreshed activity history.
 - Failed tasks can be retried through the API, CLI, or dashboard with a durable retry count capped at three; retrying clears the stale outcome and requires fresh approval for consequential actions.
+- The daemon queues task and routine execution behind a bounded resource-aware admission layer, preventing unbounded concurrent local-model work on older laptops.
 - The agent loop rechecks durable operator control state at model/action boundaries and does not claim completion after a task is paused or cancelled.
 - The daemon propagates pause/cancel signals to in-flight local model, shell, and browser operations where the underlying runtime supports cancellation.
 - New and pending tasks are claimed before controller execution, preventing a concurrent pause/cancel request from being overwritten by late startup state.

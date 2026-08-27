@@ -46,6 +46,7 @@ OpenBot is a free, open-source, local-first bot that turns a task into bounded, 
 - Lightweight desktop launcher: `desktop` starts or reuses the local daemon and opens the dashboard in the host browser; `--no-open` supports headless sessions.
 - Optional user-level service integration: `service info`, `service install`, and `service uninstall` support macOS LaunchAgents and Linux systemd user services; `--dry-run` previews changes.
 - `legacy` resource profile for older CPU-only laptops: three turns/actions, compact context, and container-free allowlisted diagnostics; opt-in `auto` selection chooses it at 2 or fewer logical CPUs or below 8 GiB RAM.
+- Bounded daemon task queue: legacy runs one task at a time with four waiting slots; standard runs two tasks with eight waiting slots, and excess submissions are rejected instead of exhausting an older laptop.
 - Loopback-only defaults, workspace containment, bounded requests, output/time limits, and security response headers.
 - Optional LAN mode requires `OPENBOT_AUTH_TOKEN`; startup refuses an unprotected non-loopback bind.
 
@@ -84,6 +85,8 @@ npm start
 ```
 
 `doctor --json` reports the requested and selected resource profile, agent caps, and whether container isolation is expected. Use `OPENBOT_RESOURCE_PROFILE=auto` for transparent hardware-based selection (legacy at 2 or fewer logical CPUs or below 8 GiB RAM), or choose `legacy`/`standard` explicitly. This changes bounded work limits; it cannot make a large local model fast enough for every laptop.
+
+The daemon also bounds task concurrency: the legacy profile permits one active task and four waiting tasks, while the standard profile permits two active tasks and eight waiting tasks. Configure `OPENBOT_MAX_CONCURRENT_TASKS` or `OPENBOT_MAX_QUEUED_TASKS` when needed; values are capped for predictable resource use. When the waiting queue is full, OpenBot returns a bounded queue-full response rather than accepting unbounded work.
 
 The default local model protocol is `native` (`/api/tags` and `/api/chat`). To connect a lightweight local runtime that exposes the common chat-completions shape, set `OPENBOT_MODEL_PROTOCOL=chat-completions`; OpenBot will use `/v1/models` and `/v1/chat/completions` while keeping local-only endpoint checks enabled.
 

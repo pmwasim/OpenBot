@@ -127,6 +127,7 @@ async function showSettings() {
       ['Provider key', config.remoteApiKey],
       ['Daemon binding', `${config.host}:${config.port}`],
       ['Browser hosts', (config.browserAllowHosts || []).join(', ') || 'loopback defaults'],
+      ['Task capacity', `${config.maxConcurrentTasks} concurrent · ${config.maxQueuedTasks} queued`],
       ['Agent limits', `${config.agentMaxTurns} turns · ${config.agentMaxActions} actions · ${config.agentContextChars} context chars`]
     ];
     content.replaceChildren(...values.map(([label, value]) => {

@@ -91,6 +91,7 @@ async function main() {
     'lib/client.mjs',
     'lib/task-result.mjs',
     'lib/task-artifacts.mjs',
+    'lib/task-queue.mjs',
     'lib/connectors.mjs',
     'lib/loopback.mjs',
     'lib/engine.mjs',
@@ -112,6 +113,7 @@ async function main() {
   const cliSource = await readFile(join(root, 'cli/openbot.mjs'), 'utf8');
   const clientSource = await readFile(join(root, 'lib/client.mjs'), 'utf8');
   const configSource = await readFile(join(root, 'lib/config.mjs'), 'utf8');
+  const queueSource = await readFile(join(root, 'lib/task-queue.mjs'), 'utf8');
   const policySource = await readFile(join(root, 'lib/policy.mjs'), 'utf8');
   const browserSource = await readFile(join(root, 'lib/workers/browser.mjs'), 'utf8');
   const engineSource = await readFile(join(root, 'lib/engine.mjs'), 'utf8');
@@ -120,6 +122,8 @@ async function main() {
   if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/export') || !appSource.includes('/result') || !appSource.includes('/artifacts') || !appSource.includes('Open structured result') || !appSource.includes('Artifacts') || !appSource.includes('Download audit') || !appSource.includes('/resume') || !appSource.includes('resumeTask') || !appSource.includes('Resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/tasks/') || !appSource.includes('after=') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('/api/routines') || !appSource.includes('/api/bots') || !appSource.includes('/messages') || !appSource.includes('loadBotConversation') || !appSource.includes('/api/connectors') || !appSource.includes('loadConnectors') || !appSource.includes('connector.fetch') || !appSource.includes('Run now') || !appSource.includes('botId') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, recovery, task history, live activity, memory, skills, routines, bots, connectors, persistent conversations, and result/artifact delivery');
   if (!appSource.includes('retryTask') || !appSource.includes('/retry') || !serverSource.includes("url.pathname.endsWith('/retry')") || !cliSource.includes("command === 'retry'") || !clientSource.includes('daemonRetryTask')) throw new Error('failed-task retry is not exposed across clients');
   pass('failed-task retry is exposed across clients');
+  if (!configSource.includes('maxConcurrentTasks') || !configSource.includes('maxQueuedTasks') || !serverSource.includes('createTaskQueue') || !serverSource.includes('scheduleTaskRun') || !queueSource.includes('maxQueueDepth')) throw new Error('daemon task queue is not bounded across configuration and execution');
+  pass('daemon task execution uses a bounded resource-aware queue');
   if (appSource.includes('e.innerHTML=`')) throw new Error('dashboard renders state with unsafe innerHTML');
   pass('dashboard exposes workspace, action cards, structured results, audit links, and downloadable task artifacts safely');
   if (!appSource.includes('editMemory') || !appSource.includes('editSkill') || !appSource.includes('editBot') || !appSource.includes('editConnector') || !appSource.includes("method: 'PATCH'") || !appSource.includes('Cancel') || !appSource.includes('Edit')) throw new Error('dashboard does not expose safe editing for bots, skills, memory, and connectors');
@@ -295,8 +299,23 @@ async function main() {
   pass('chat-completions local model protocol works without changing the default');
 
   const { loadConfig, publicConfig } = await import(pathToFileURL(join(root, 'lib/config.mjs')).href);
+  const { createTaskQueue, TASK_QUEUE_LIMITS } = await import(pathToFileURL(join(root, 'lib/task-queue.mjs')).href);
+  const queueCalls = [];
+  let releaseQueue;
+  const queueGate = new Promise((resolve) => { releaseQueue = resolve; });
+  const taskQueue = createTaskQueue({ maxConcurrent: 1, maxQueueDepth: 1, run: async (item) => { queueCalls.push(item.id); if (item.id === 'queue-a') await queueGate; return item.id; } });
+  const queueA = taskQueue.enqueue({ id: 'queue-a' });
+  const queueB = taskQueue.enqueue({ id: 'queue-b' });
+  if (queueA.state !== 'started' || queueB.state !== 'queued' || !taskQueue.has('queue-b') || taskQueue.activeCount !== 1 || taskQueue.queuedCount !== 1) throw new Error(`queue admission ${JSON.stringify({ queueA, queueB, active: taskQueue.activeCount, queued: taskQueue.queuedCount })}`);
+  let queueRejected = false;
+  try { taskQueue.enqueue({ id: 'queue-c' }); } catch (error) { queueRejected = error.statusCode === 429; }
+  if (!queueRejected || TASK_QUEUE_LIMITS.maxQueueDepth < 1) throw new Error('queue depth was not bounded');
+  releaseQueue();
+  const queueResults = await Promise.all([queueA.promise, queueB.promise]);
+  if (JSON.stringify(queueCalls) !== JSON.stringify(['queue-a', 'queue-b']) || JSON.stringify(queueResults) !== JSON.stringify(['queue-a', 'queue-b']) || taskQueue.activeCount !== 0 || taskQueue.queuedCount !== 0) throw new Error(`queue drain ${JSON.stringify({ queueCalls, queueResults, active: taskQueue.activeCount, queued: taskQueue.queuedCount })}`);
+  pass('daemon task queue serializes old-laptop work and rejects excess backlog');
   const legacyConfig = loadConfig({ OPENBOT_RESOURCE_PROFILE: 'legacy' });
-  if (legacyConfig.resourceProfile !== 'legacy' || legacyConfig.agentMaxTurns !== 3 || legacyConfig.agentMaxActions !== 3 || legacyConfig.isolation !== 'cwd') {
+  if (legacyConfig.resourceProfile !== 'legacy' || legacyConfig.agentMaxTurns !== 3 || legacyConfig.agentMaxActions !== 3 || legacyConfig.maxConcurrentTasks !== 1 || legacyConfig.isolation !== 'cwd') {
     throw new Error(`legacy profile defaults ${JSON.stringify(legacyConfig)}`);
   }
   if (publicConfig(legacyConfig).resourceProfile !== 'legacy') throw new Error('legacy profile is not public');
@@ -304,7 +323,7 @@ async function main() {
   if (autoLegacyConfig.resourceProfile !== 'legacy' || autoLegacyConfig.resourceProfileMode !== 'auto' || autoLegacyConfig.agentMaxTurns !== 3 || autoLegacyConfig.agentMaxActions !== 3) throw new Error(`auto legacy profile ${JSON.stringify(autoLegacyConfig)}`);
   if (publicConfig(autoLegacyConfig).resourceProfileMode !== 'auto') throw new Error('auto resource selection is not public');
   const autoStandardConfig = loadConfig({ OPENBOT_RESOURCE_PROFILE: 'auto', OPENBOT_CPU_COUNT: '8', OPENBOT_MEMORY_BYTES: String(16 * 1024 ** 3) });
-  if (autoStandardConfig.resourceProfile !== 'standard' || autoStandardConfig.resourceProfileMode !== 'auto' || autoStandardConfig.agentMaxTurns !== 6) throw new Error(`auto standard profile ${JSON.stringify(autoStandardConfig)}`);
+  if (autoStandardConfig.resourceProfile !== 'standard' || autoStandardConfig.resourceProfileMode !== 'auto' || autoStandardConfig.agentMaxTurns !== 6 || autoStandardConfig.maxConcurrentTasks !== 2) throw new Error(`auto standard profile ${JSON.stringify(autoStandardConfig)}`);
   const autoMemoryLegacyConfig = loadConfig({ OPENBOT_RESOURCE_PROFILE: 'auto', OPENBOT_CPU_COUNT: '8', OPENBOT_MEMORY_BYTES: String(7 * 1024 ** 3) });
   if (autoMemoryLegacyConfig.resourceProfile !== 'legacy') throw new Error(`auto memory threshold ${JSON.stringify(autoMemoryLegacyConfig)}`);
   const autoMemoryBoundaryConfig = loadConfig({ OPENBOT_RESOURCE_PROFILE: 'auto', OPENBOT_CPU_COUNT: '8', OPENBOT_MEMORY_BYTES: String(8 * 1024 ** 3) });

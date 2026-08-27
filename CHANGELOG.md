@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.35 — 2026-08-27
+
+Added bounded daemon task admission for older-laptop reliability.
+
+- Limit active and waiting task work by resource profile: legacy allows one active task and four waiting tasks; standard allows two active tasks and eight waiting tasks.
+- Queue routine and asynchronous task execution, report queued state, and reject a full backlog with a bounded response.
+- Expose effective task capacity in Settings and preserve local-first operation, zero mandatory spend, old-laptop portability, and brand-neutral public surfaces.
+
 ## 0.4.34 — 2026-08-27
 
 Added bounded retry for failed tasks.

@@ -13,6 +13,7 @@ import { claimDaemonPid, releaseDaemonPid } from './lib/daemon.mjs';
 import { taskResultView } from './lib/task-result.mjs';
 import { redactArtifactContent, taskArtifactInventory, TASK_ARTIFACT_LIMITS } from './lib/task-artifacts.mjs';
 import { fileRead } from './lib/workers/file.mjs';
+import { createTaskQueue } from './lib/task-queue.mjs';
 
 const config = loadConfig();
 const maxBodyBytes = 64 * 1024;
@@ -177,20 +178,33 @@ async function runAgentTask({ taskId, prompt, workspace, model, providerName, ma
 async function runTaskInBackground(task) {
   try {
     const selected = await resolveAgentModel(task.model, task.provider);
-    await runAgentTask({ taskId: task.id, prompt: task.prompt, workspace: task.workspace, model: selected, providerName: task.provider, maxTurns: task.maxTurns, approvalId: task.approvalId, skill: task.skill, botId: task.botId, recordBotConversation: task.recordBotConversation });
+    const result = await runAgentTask({ taskId: task.createTask ? undefined : task.id, prompt: task.prompt, workspace: task.workspace, model: selected, providerName: task.provider, maxTurns: task.maxTurns, approvalId: task.approvalId, skill: task.skill, botId: task.botId, recordBotConversation: task.recordBotConversation });
+    return result;
   } catch (error) {
     const current = await store.getTask(task.id).catch(() => null);
     if (current && ['pending', 'running'].includes(current.status)) {
       await store.append({ type: 'task.status', taskId: task.id, actor: 'daemon', payload: { status: 'failed', reason: 'background_error', error: redactSecrets(error.message || 'Background task failed.') } }).catch(() => {});
     }
+    return { taskId: task.createTask ? null : task.id, status: 'failed', error: redactSecrets(error.message || 'Background task failed.') };
   }
+}
+
+const taskQueue = createTaskQueue({
+  maxConcurrent: config.maxConcurrentTasks,
+  maxQueueDepth: config.maxQueuedTasks,
+  run: runTaskInBackground
+});
+
+function scheduleTaskRun(task) {
+  return taskQueue.enqueue(task);
 }
 
 const routineScheduler = createRoutineScheduler({
   store,
   runRoutine: async (routine) => {
     const model = await resolveAgentModel();
-    return runAgentTask({ prompt: routine.prompt, workspace: routine.workspace, model, providerName: 'local-model', skill: routine.skill, botId: routine.botId });
+    const taskId = `routine-${routine.id}-${Date.now()}`;
+    return scheduleTaskRun({ id: taskId, createTask: true, prompt: routine.prompt, workspace: routine.workspace, model, provider: 'local-model', skill: routine.skill, botId: routine.botId, recordBotConversation: true }).promise;
   }
 });
 
@@ -545,9 +559,10 @@ const app = http.createServer(async (req, res) => {
       if (activeTaskControllers.has(taskId)) return json(res, 409, { error: 'Task is already running.' });
       const payload = await body(req);
       if (payload.provider && payload.provider !== task.provider) return json(res, 409, { error: 'Task provider does not match the requested provider.' });
+      if (!taskQueue.canAccept()) return json(res, 429, { error: 'Task queue is full. Wait for an active task to finish.' });
       await store.setTaskStatus(taskId, 'retry');
-      void runTaskInBackground({ ...task, model: payload.model, provider: task.provider, maxTurns: payload.maxTurns, approvalId: payload.approvalId, skill: payload.skill || task.skill, botId: payload.botId || task.botId, recordBotConversation: false });
-      return json(res, 202, { taskId, status: 'started', task: await store.getTask(taskId) });
+      const scheduled = scheduleTaskRun({ ...task, model: payload.model, provider: task.provider, maxTurns: payload.maxTurns, approvalId: payload.approvalId, skill: payload.skill || task.skill, botId: payload.botId || task.botId, recordBotConversation: false });
+      return json(res, 202, { taskId, status: scheduled.state, task: await store.getTask(taskId) });
     }
     if (url.pathname.startsWith('/api/tasks/') && url.pathname.endsWith('/run') && req.method === 'POST') {
       const taskId = decodeURIComponent(url.pathname.slice('/api/tasks/'.length, -'/run'.length));
@@ -558,8 +573,8 @@ const app = http.createServer(async (req, res) => {
       const payload = await body(req);
       const providerName = payload.provider || task.provider || 'local-model';
       if (providerName !== task.provider) return json(res, 409, { error: 'Task provider does not match the requested provider.' });
-      void runTaskInBackground({ ...task, model: payload.model, provider: providerName, maxTurns: payload.maxTurns, approvalId: payload.approvalId, skill: payload.skill || task.skill, botId: payload.botId || task.botId, recordBotConversation: true });
-      return json(res, 202, { taskId, status: 'started', task });
+      const scheduled = scheduleTaskRun({ ...task, model: payload.model, provider: providerName, maxTurns: payload.maxTurns, approvalId: payload.approvalId, skill: payload.skill || task.skill, botId: payload.botId || task.botId, recordBotConversation: true });
+      return json(res, 202, { taskId, status: scheduled.state, task });
     }
     if (url.pathname === '/api/chat' && req.method === 'POST') {
       const { message, model, provider, workspace, taskId, maxTurns, skill, botId } = await body(req);
