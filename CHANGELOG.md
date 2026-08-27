@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.1 — 2026-08-27
+
+Usability follow-up for persistent local work and older laptops.
+
+- Added recent task history to the dashboard with direct audit links.
+- Added task-history regression coverage for the HTTP API.
+- Added `doctor --json` resource guidance for the `legacy` CPU-only profile.
+- Kept approved task continuation, fixed-path diagnostics, and zero-cost local operation explicit.
+
 ## 0.3.0 — 2026-08-27
 
 OpenBot’s first real local-bot release. The product now performs bounded, auditable work instead of only presenting a control panel.

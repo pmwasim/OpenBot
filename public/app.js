@@ -46,9 +46,10 @@ function renderAuditLink(message, taskId) {
 }
 
 async function load() {
-  const [health, state] = await Promise.all([
+  const [health, state, taskResponse] = await Promise.all([
     fetch('/api/health').then((response) => response.json()),
-    fetch('/api/state').then((response) => response.json())
+    fetch('/api/state').then((response) => response.json()),
+    fetch('/api/tasks').then((response) => response.json())
   ]);
   const dot = document.querySelector('#health-dot');
   modelName = health.models?.[0] || '';
@@ -58,10 +59,25 @@ async function load() {
     : 'Start Ollama to activate local intelligence';
   document.querySelector('#model-label').textContent = modelName || (health.online ? 'No model installed' : 'Ollama offline');
   dot.style.background = health.online ? 'var(--green)' : '#e78290';
-  renderState(state);
+  renderState(state, taskResponse);
 }
 
-function renderState(state) {
+function renderState(state, taskResponse = {}) {
+  const tasks = Array.isArray(taskResponse.tasks) ? taskResponse.tasks : [];
+  const recent = document.querySelector('#recent-tasks');
+  recent.replaceChildren();
+  document.querySelector('#task-count').textContent = String(tasks.length);
+  for (const taskItem of tasks.slice(-8).reverse()) {
+    const card = element('div', 'health recent-task');
+    const details = element('div');
+    details.append(element('b', '', taskItem.prompt || 'Untitled task'), element('small', '', taskItem.status || 'unknown'));
+    const audit = element('a', '', 'Audit');
+    audit.href = `/api/tasks/${encodeURIComponent(taskItem.id)}/audit`;
+    audit.target = '_blank';
+    audit.rel = 'noopener';
+    card.append(details, audit);
+    recent.append(card);
+  }
   const approvals = document.querySelector('#approvals');
   approvals.replaceChildren();
   const items = Array.isArray(state.approvals) ? state.approvals : [];

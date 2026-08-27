@@ -7,7 +7,7 @@ OpenBot is a free, open-source, local-first bot that turns a task into bounded, 
 - Structured local agent loop over Ollama: a model returns either a final reply or one validated tool action at a time.
 - Safe file reads/diffs, allowlisted shell diagnostics, and allowlisted loopback browser fetches through the existing policy/engine boundary.
 - File writes and consequential shell work stop for one-shot, action-bound approval; the loop never auto-approves.
-- Durable task/event history, redacted audit export, CLI parity, dashboard action cards, and task audit links.
+- Durable task/event history, recent-task dashboard cards, redacted audit export, CLI parity, action cards, and task audit links.
 - `legacy` resource profile for older CPU-only laptops: three turns/actions, compact context, and Docker-free allowlisted diagnostics.
 - Loopback-only defaults, workspace containment, bounded requests, output/time limits, and security response headers.
 
@@ -19,6 +19,8 @@ OPENBOT_RESOURCE_PROFILE=legacy node cli/openbot.mjs doctor --json
 node cli/openbot.mjs chat --workspace /path/to/project "Read notes.txt and summarize it" --json
 npm start
 ```
+
+`doctor --json` reports the active resource profile, agent caps, and whether Docker is expected. Use `OPENBOT_RESOURCE_PROFILE=legacy` on older CPU-only laptops.
 
 Natural-language tasks require a locally installed Ollama model. Core administration and bounded workers remain usable without a model. The legacy profile is a portability mode, not an unrestricted shell sandbox: only policy-allowlisted diagnostics may run directly on the host when Docker is unavailable.
 
