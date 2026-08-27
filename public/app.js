@@ -554,6 +554,10 @@ function renderState(state, taskResponse = {}) {
       preview.append(resultLink);
       card.append(preview);
     }
+    const artifacts = element('a', '', 'Artifacts ↗');
+    artifacts.href = `/api/tasks/${encodeURIComponent(taskItem.id)}/artifacts`;
+    artifacts.target = '_blank';
+    artifacts.rel = 'noopener';
     const audit = element('a', '', 'Audit');
     audit.href = `/api/tasks/${encodeURIComponent(taskItem.id)}/audit`;
     audit.target = '_blank';
@@ -562,7 +566,7 @@ function renderState(state, taskResponse = {}) {
     download.href = `/api/tasks/${encodeURIComponent(taskItem.id)}/export`;
     download.download = 'openbot-task-audit.json';
     download.rel = 'noopener';
-    card.append(details, audit, download);
+    card.append(details, artifacts, audit, download);
     if (['pending', 'running', 'paused'].includes(taskStatus)) {
       const resume = element('button', 'text', 'Resume');
       resume.addEventListener('click', () => resumeTask(taskItem, resume));

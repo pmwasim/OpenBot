@@ -11,6 +11,8 @@ import { createAgentController } from './lib/agent.mjs';
 import { createRoutineScheduler } from './lib/routines.mjs';
 import { claimDaemonPid, releaseDaemonPid } from './lib/daemon.mjs';
 import { taskResultView } from './lib/task-result.mjs';
+import { redactArtifactContent, taskArtifactInventory, TASK_ARTIFACT_LIMITS } from './lib/task-artifacts.mjs';
+import { fileRead } from './lib/workers/file.mjs';
 
 const config = loadConfig();
 const maxBodyBytes = 64 * 1024;
@@ -437,6 +439,26 @@ const app = http.createServer(async (req, res) => {
       if (!task) return json(res, 404, { error: 'Task not found' });
       const events = await store.listEvents({ taskId });
       return json(res, 200, taskResultView(task, events));
+    }
+    if (url.pathname.startsWith('/api/tasks/') && url.pathname.endsWith('/artifacts') && req.method === 'GET') {
+      const taskId = decodeURIComponent(url.pathname.slice('/api/tasks/'.length, -'/artifacts'.length));
+      const task = await store.getTask(taskId);
+      if (!task) return json(res, 404, { error: 'Task not found' });
+      return json(res, 200, taskArtifactInventory(task, await store.listEvents({ taskId })));
+    }
+    if (url.pathname.startsWith('/api/tasks/') && url.pathname.includes('/artifacts/') && req.method === 'GET') {
+      const rest = url.pathname.slice('/api/tasks/'.length);
+      const marker = '/artifacts/';
+      const markerAt = rest.indexOf(marker);
+      const taskId = decodeURIComponent(rest.slice(0, markerAt));
+      const artifactPath = decodeURIComponent(rest.slice(markerAt + marker.length));
+      const task = await store.getTask(taskId);
+      if (!task) return json(res, 404, { error: 'Task not found' });
+      const events = await store.listEvents({ taskId });
+      const artifact = taskArtifactInventory(task, events).artifacts.find((item) => item.path === artifactPath);
+      if (!artifact) return json(res, 404, { error: 'Artifact not found for this task.' });
+      const content = await fileRead(task.workspace, artifact.path, { maxBytes: TASK_ARTIFACT_LIMITS.maxPreviewBytes });
+      return json(res, 200, { taskId, artifact, ...redactArtifactContent(content.contents) });
     }
     if (url.pathname.startsWith('/api/tasks/') && url.pathname.endsWith('/export') && req.method === 'GET') {
       const taskId = decodeURIComponent(url.pathname.slice('/api/tasks/'.length, -'/export'.length));

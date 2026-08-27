@@ -89,6 +89,7 @@ async function main() {
     'lib/service.mjs',
     'lib/client.mjs',
     'lib/task-result.mjs',
+    'lib/task-artifacts.mjs',
     'lib/loopback.mjs',
     'lib/engine.mjs',
     'lib/runtime.mjs',
@@ -109,7 +110,7 @@ async function main() {
   const cliSource = await readFile(join(root, 'cli/openbot.mjs'), 'utf8');
   const clientSource = await readFile(join(root, 'lib/client.mjs'), 'utf8');
   if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"') || !indexSource.includes('id="recent-tasks"') || !indexSource.includes('id="memories"') || !indexSource.includes('id="memory-form"') || !indexSource.includes('id="skills"') || !indexSource.includes('id="skill-form"') || !indexSource.includes('id="routine-form"') || !indexSource.includes('id="routine-schedule"') || !indexSource.includes('id="bot"') || !indexSource.includes('id="bot-form"') || !indexSource.includes('id="bot-name"') || !indexSource.includes('id="provider"') || !indexSource.includes('id="model"')) throw new Error('dashboard is missing workspace, provider, model, bot, task history, memory, skill, or routine controls');
-  if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/export') || !appSource.includes('/result') || !appSource.includes('Open structured result') || !appSource.includes('Download audit') || !appSource.includes('/resume') || !appSource.includes('resumeTask') || !appSource.includes('Resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/tasks/') || !appSource.includes('after=') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('/api/routines') || !appSource.includes('/api/bots') || !appSource.includes('Run now') || !appSource.includes('botId') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, recovery, task history, live activity, memory, skills, routines, bots, and result/artifact delivery');
+  if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/export') || !appSource.includes('/result') || !appSource.includes('/artifacts') || !appSource.includes('Open structured result') || !appSource.includes('Artifacts') || !appSource.includes('Download audit') || !appSource.includes('/resume') || !appSource.includes('resumeTask') || !appSource.includes('Resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/tasks/') || !appSource.includes('after=') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('/api/routines') || !appSource.includes('/api/bots') || !appSource.includes('Run now') || !appSource.includes('botId') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, recovery, task history, live activity, memory, skills, routines, bots, and result/artifact delivery');
   if (appSource.includes('e.innerHTML=`')) throw new Error('dashboard renders state with unsafe innerHTML');
   pass('dashboard exposes workspace, action cards, structured results, audit links, and downloadable task artifacts safely');
   if (!appSource.includes('editMemory') || !appSource.includes('editSkill') || !appSource.includes('editBot') || !appSource.includes("method: 'PATCH'") || !appSource.includes('Cancel') || !appSource.includes('Edit')) throw new Error('dashboard does not expose safe editing for bots, skills, and memory');
@@ -122,6 +123,8 @@ async function main() {
   pass('CLI exposes durable task follow mode');
   if (!cliSource.includes("command === 'result'") || !cliSource.includes('daemonTaskResult') || !clientSource.includes('daemonTaskResult')) throw new Error('CLI does not expose concise task results');
   pass('CLI exposes concise task results locally and through the daemon');
+  if (!cliSource.includes("command === 'artifacts'") || !cliSource.includes('daemonTaskArtifacts') || !clientSource.includes('daemonTaskArtifacts')) throw new Error('CLI does not expose typed task artifacts');
+  pass('CLI exposes typed task artifacts locally and through the daemon');
   if (!serverSource.includes('TASK_RESULT_LIMITS') && !await readFile(join(root, 'lib/task-result.mjs'), 'utf8').then((source) => source.includes('maxActionResultChars'))) throw new Error('task result payloads are not size-bounded');
   if (!cliSource.includes('--provider') || !cliSource.includes('provider: flags.provider')) throw new Error('CLI does not expose explicit provider selection');
   pass('CLI exposes explicit provider selection');
@@ -138,13 +141,25 @@ async function main() {
   pass('dashboard exposes safe effective settings');
   if (!serverSource.includes("url.pathname.endsWith('/result')") || !serverSource.includes('taskResultView')) throw new Error('server does not expose a curated bounded task result view');
   pass('server exposes a curated bounded task result view');
+  if (!serverSource.includes("url.pathname.endsWith('/artifacts')") || !serverSource.includes("url.pathname.includes('/artifacts/')") || !serverSource.includes('taskArtifactInventory') || !serverSource.includes('redactArtifactContent')) throw new Error('server does not expose scoped task artifact inventory and access');
+  pass('server exposes scoped task artifact inventory and access');
   const { taskResultView, TASK_RESULT_LIMITS } = await import(pathToFileURL(join(root, 'lib/task-result.mjs')).href);
+  const { taskArtifactInventory, redactArtifactContent, TASK_ARTIFACT_LIMITS } = await import(pathToFileURL(join(root, 'lib/task-artifacts.mjs')).href);
   const bounded = taskResultView(
     { id: 'task-bounded', status: 'completed', result: 'token=do-not-leak '.repeat(2000), updatedAt: 'now' },
     [{ seq: 1, type: 'agent.action.executed', payload: { action: { tool: 'file.read', status: 'executed', result: 'secret '.repeat(3000) } } }]
   );
   if (!String(bounded.result).endsWith('…[truncated]') || String(bounded.result).length > TASK_RESULT_LIMITS.maxResultChars + 20 || String(bounded.actions[0]?.result).length > TASK_RESULT_LIMITS.maxActionResultChars + 20 || JSON.stringify(bounded).includes('do-not-leak')) throw new Error('structured task results are not redacted and size-bounded');
   pass('structured task result values are redacted and size-bounded');
+  const artifactInventory = taskArtifactInventory(
+    { id: 'task-artifacts' },
+    [{ seq: 1, type: 'action.proposed', tool: 'file.write', args: { path: 'not-created.txt' }, result: { path: 'not-created.txt', bytes: 42 } }, { seq: 2, type: 'action.executed', tool: 'file.write', result: { path: 'reports/out.txt', bytes: 42 } }, { seq: 3, type: 'agent.action.executed', payload: { action: { tool: 'browser.fetch', status: 'executed', result: { path: 'research.md', bytes: 12 } } } }]
+  );
+  if (artifactInventory.taskId !== 'task-artifacts' || artifactInventory.artifacts.length !== 2 || artifactInventory.artifacts[0].path !== 'reports/out.txt' || artifactInventory.artifacts[1].kind !== 'workspace-file' || artifactInventory.artifacts.length > TASK_ARTIFACT_LIMITS.maxArtifacts) throw new Error(`artifact inventory ${JSON.stringify(artifactInventory)}`);
+  pass('task artifacts are typed and inventory-bounded');
+  const boundedArtifact = redactArtifactContent('secret '.repeat(TASK_ARTIFACT_LIMITS.maxPreviewBytes));
+  if (!boundedArtifact.truncated || boundedArtifact.content.length <= TASK_ARTIFACT_LIMITS.maxPreviewBytes || boundedArtifact.content.includes('secret=raw')) throw new Error('artifact preview was not bounded');
+  pass('artifact previews are redacted and size-bounded');
   if (!serverSource.includes("url.pathname.endsWith('/export')") || !serverSource.includes('content-disposition') || !serverSource.includes('openbot-task-audit.json')) throw new Error('server does not expose a downloadable bounded task audit artifact');
   pass('server exposes a downloadable bounded task audit artifact');
   const publicSurfaceFiles = ['README.md', 'PRD.md', 'SECURITY.md', 'CHANGELOG.md', 'cli/openbot.mjs', 'server.mjs', 'lib/config.mjs', 'lib/provider.mjs', 'lib/daemon.mjs', 'lib/client.mjs', 'lib/agent.mjs', 'lib/store.mjs', 'public/index.html', 'public/app.js', 'public/styles.css'];
@@ -408,6 +423,11 @@ async function main() {
     const freshState = await freshStore.getState();
     if (freshState.approvals.length || freshState.routines.length) throw new Error('fresh store contains synthetic approvals or routines');
     pass('fresh store starts without synthetic user work');
+    await writeFile(join(fileWs, 'oversized-preview.txt'), 'x'.repeat(1024), 'utf8');
+    let oversizedReadRejected = false;
+    try { await fileRead(fileWs, 'oversized-preview.txt', { maxBytes: 100 }); } catch (error) { oversizedReadRejected = error.code === 'OPENBOT_FILE_TOO_LARGE' && error.statusCode === 413; }
+    if (!oversizedReadRejected) throw new Error('bounded file preview accepted oversized content');
+    pass('bounded file previews reject oversized files before reading them');
     const savedMemory = await freshStore.createMemory({ workspace: '/tmp/agent-harness', key: 'secret_note', value: 'token=sk-memory-secret' });
     if (!savedMemory.memory?.id || savedMemory.memory.value.includes('sk-memory-secret')) throw new Error('memory redaction or creation');
     const listedMemory = await freshStore.listMemories({ workspace: '/tmp/agent-harness' });
@@ -614,6 +634,27 @@ async function main() {
       const parsed = JSON.parse(state.body);
       if (state.status !== 200 || !parsed.approvals || !Array.isArray(parsed.bots)) throw new Error('invalid state');
       pass('state endpoint responds with approvals');
+      const artifactTaskCreate = await http('/api/tasks', { method: 'POST', body: JSON.stringify({ prompt: 'Create a report artifact.', kind: 'plan', workspace: agentWs }) });
+      const artifactTaskId = JSON.parse(artifactTaskCreate.body).task?.id;
+      const artifactArgs = { path: 'artifact.txt', contents: 'artifact content\n' };
+      const artifactProposal = await http('/api/actions', { method: 'POST', body: JSON.stringify({ taskId: artifactTaskId, workspace: agentWs, tool: 'file.write', args: artifactArgs, execute: true }) });
+      const artifactProposalBody = JSON.parse(artifactProposal.body);
+      if (artifactProposal.status !== 200 || artifactProposalBody.status !== 'needs_approval' || !artifactProposalBody.approval?.id) throw new Error(`artifact proposal ${artifactProposal.status} ${artifactProposal.body}`);
+      await http('/api/approval', { method: 'POST', body: JSON.stringify({ id: artifactProposalBody.approval.id, decision: 'approved' }) });
+      const artifactWritten = await http('/api/actions', { method: 'POST', body: JSON.stringify({ taskId: artifactTaskId, workspace: agentWs, tool: 'file.write', args: artifactArgs, approvalId: artifactProposalBody.approval.id, execute: true }) });
+      if (artifactWritten.status !== 200 || JSON.parse(artifactWritten.body).status !== 'executed') throw new Error(`artifact write ${artifactWritten.status} ${artifactWritten.body}`);
+      const artifactList = await http(`/api/tasks/${encodeURIComponent(artifactTaskId)}/artifacts`);
+      const artifactListBody = JSON.parse(artifactList.body);
+      if (artifactList.status !== 200 || artifactListBody.taskId !== artifactTaskId || artifactListBody.artifacts?.length !== 1 || artifactListBody.artifacts[0].path !== 'artifact.txt') throw new Error(`artifact list ${artifactList.status} ${artifactList.body}`);
+      const artifactRead = await http(`/api/tasks/${encodeURIComponent(artifactTaskId)}/artifacts/${encodeURIComponent('artifact.txt')}`);
+      const artifactReadBody = JSON.parse(artifactRead.body);
+      if (artifactRead.status !== 200 || artifactReadBody.artifact?.path !== 'artifact.txt' || artifactReadBody.content !== 'artifact content\n' || artifactReadBody.truncated !== false) throw new Error(`artifact read ${artifactRead.status} ${artifactRead.body}`);
+      const artifactEscape = await http(`/api/tasks/${encodeURIComponent(artifactTaskId)}/artifacts/${encodeURIComponent('../outside.txt')}`);
+      if (artifactEscape.status !== 404) throw new Error(`artifact escape ${artifactEscape.status} ${artifactEscape.body}`);
+      const localArtifactsCli = await runNode(['cli/openbot.mjs', 'artifacts', artifactTaskId, '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
+      const localArtifactsJson = parseCliJson(localArtifactsCli.output);
+      if (localArtifactsCli.code !== 0 || localArtifactsJson.taskId !== artifactTaskId || localArtifactsJson.artifacts?.[0]?.path !== 'artifact.txt') throw new Error(`local CLI artifacts ${localArtifactsCli.output}`);
+      pass('task artifacts are listed and selectively readable only inside the task workspace');
       const asyncCreate = await http('/api/tasks', { method: 'POST', body: JSON.stringify({ prompt: 'Run this asynchronously.', kind: 'plan', workspace: agentWs }) });
       const asyncCreateBody = JSON.parse(asyncCreate.body);
       const asyncRun = await http(`/api/tasks/${encodeURIComponent(asyncCreateBody.task.id)}/run`, { method: 'POST', body: JSON.stringify({ model: 'fixture-async', background: true }) });
@@ -792,6 +833,10 @@ async function main() {
       const daemonResultJson = parseCliJson(daemonResultCli.output);
       if (daemonResultCli.code !== 0 || daemonResultJson.taskId !== daemonCliJson.taskId || daemonResultJson.status !== 'completed' || !Array.isArray(daemonResultJson.actions)) throw new Error(`daemon CLI result: ${daemonResultCli.output}`);
       pass('CLI shows concise task results through the shared daemon');
+      const daemonArtifactsCli = await runNode(['cli/openbot.mjs', 'artifacts', daemonCliJson.taskId, '--daemon', '--json'], isolatedDaemonEnv);
+      const daemonArtifactsJson = parseCliJson(daemonArtifactsCli.output);
+      if (daemonArtifactsCli.code !== 0 || daemonArtifactsJson.taskId !== daemonCliJson.taskId || !Array.isArray(daemonArtifactsJson.artifacts)) throw new Error(`daemon CLI artifacts: ${daemonArtifactsCli.output}`);
+      pass('CLI shows typed task artifacts through the shared daemon');
       const daemonLogsCli = await runNode(['cli/openbot.mjs', 'logs', daemonCliJson.taskId, '--daemon', '--json'], isolatedDaemonEnv);
       const daemonLogsJson = JSON.parse(daemonLogsCli.output.trim());
       if (daemonLogsCli.code !== 0 || !Array.isArray(daemonLogsJson) || !daemonLogsJson.length) throw new Error(`daemon CLI logs: ${daemonLogsCli.output}`);
