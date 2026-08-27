@@ -88,6 +88,7 @@ async function main() {
     'lib/desktop.mjs',
     'lib/service.mjs',
     'lib/client.mjs',
+    'lib/task-result.mjs',
     'lib/loopback.mjs',
     'lib/engine.mjs',
     'lib/runtime.mjs',
@@ -119,6 +120,9 @@ async function main() {
   pass('dashboard exposes asynchronous durable task execution');
   if (!cliSource.includes('--follow') || !cliSource.includes('daemonRunTask') || !clientSource.includes('daemonCreateTask') || !clientSource.includes('daemonTaskEvents')) throw new Error('CLI does not expose durable task follow mode');
   pass('CLI exposes durable task follow mode');
+  if (!cliSource.includes("command === 'result'") || !cliSource.includes('daemonTaskResult') || !clientSource.includes('daemonTaskResult')) throw new Error('CLI does not expose concise task results');
+  pass('CLI exposes concise task results locally and through the daemon');
+  if (!serverSource.includes('TASK_RESULT_LIMITS') && !await readFile(join(root, 'lib/task-result.mjs'), 'utf8').then((source) => source.includes('maxActionResultChars'))) throw new Error('task result payloads are not size-bounded');
   if (!cliSource.includes('--provider') || !cliSource.includes('provider: flags.provider')) throw new Error('CLI does not expose explicit provider selection');
   pass('CLI exposes explicit provider selection');
   if (!appSource.includes('EventSource') || !appSource.includes('/events/stream')) throw new Error('dashboard does not expose live task event streaming');
@@ -134,6 +138,13 @@ async function main() {
   pass('dashboard exposes safe effective settings');
   if (!serverSource.includes("url.pathname.endsWith('/result')") || !serverSource.includes('taskResultView')) throw new Error('server does not expose a curated bounded task result view');
   pass('server exposes a curated bounded task result view');
+  const { taskResultView, TASK_RESULT_LIMITS } = await import(pathToFileURL(join(root, 'lib/task-result.mjs')).href);
+  const bounded = taskResultView(
+    { id: 'task-bounded', status: 'completed', result: 'token=do-not-leak '.repeat(2000), updatedAt: 'now' },
+    [{ seq: 1, type: 'agent.action.executed', payload: { action: { tool: 'file.read', status: 'executed', result: 'secret '.repeat(3000) } } }]
+  );
+  if (!String(bounded.result).endsWith('…[truncated]') || String(bounded.result).length > TASK_RESULT_LIMITS.maxResultChars + 20 || String(bounded.actions[0]?.result).length > TASK_RESULT_LIMITS.maxActionResultChars + 20 || JSON.stringify(bounded).includes('do-not-leak')) throw new Error('structured task results are not redacted and size-bounded');
+  pass('structured task result values are redacted and size-bounded');
   if (!serverSource.includes("url.pathname.endsWith('/export')") || !serverSource.includes('content-disposition') || !serverSource.includes('openbot-task-audit.json')) throw new Error('server does not expose a downloadable bounded task audit artifact');
   pass('server exposes a downloadable bounded task audit artifact');
   const publicSurfaceFiles = ['README.md', 'PRD.md', 'SECURITY.md', 'CHANGELOG.md', 'cli/openbot.mjs', 'server.mjs', 'lib/config.mjs', 'lib/provider.mjs', 'lib/daemon.mjs', 'lib/client.mjs', 'lib/agent.mjs', 'lib/store.mjs', 'public/index.html', 'public/app.js', 'public/styles.css'];
@@ -472,6 +483,10 @@ async function main() {
     if (!listed.some((task) => task.prompt === 'harness cli task')) throw new Error('cli run did not persist');
     const cliFail = await runNode(['cli/openbot.mjs', 'show', 'missing-task-id'], { OPENBOT_DATA_DIR: dataDir });
     if (cliFail.code === 0) throw new Error('show missing should fail');
+    const cliResult = await runNode(['cli/openbot.mjs', 'result', created.task.id, '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
+    const cliResultJson = parseCliJson(cliResult.output);
+    if (cliResult.code !== 0 || cliResultJson.taskId !== created.task.id || cliResultJson.status !== 'pending' || !Array.isArray(cliResultJson.actions)) throw new Error(`CLI result: ${cliResult.output}`);
+    pass('CLI shows concise task results from the local store');
     pass('CLI run persists a task and fails on missing show');
     const cliMemoryAdd = await runNode(['cli/openbot.mjs', 'memory', 'add', '--workspace', fileWs, '--key', 'tone', '--value', 'Concise'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
     const cliMemoryAddJson = parseCliJson(cliMemoryAdd.output);
@@ -773,6 +788,10 @@ async function main() {
       const daemonShowCli = await runNode(['cli/openbot.mjs', 'show', daemonCliJson.taskId, '--daemon', '--json'], isolatedDaemonEnv);
       const daemonShowJson = parseCliJson(daemonShowCli.output);
       if (daemonShowCli.code !== 0 || daemonShowJson.task?.id !== daemonCliJson.taskId || !Array.isArray(daemonShowJson.events)) throw new Error(`daemon CLI show: ${daemonShowCli.output}`);
+      const daemonResultCli = await runNode(['cli/openbot.mjs', 'result', daemonCliJson.taskId, '--daemon', '--json'], isolatedDaemonEnv);
+      const daemonResultJson = parseCliJson(daemonResultCli.output);
+      if (daemonResultCli.code !== 0 || daemonResultJson.taskId !== daemonCliJson.taskId || daemonResultJson.status !== 'completed' || !Array.isArray(daemonResultJson.actions)) throw new Error(`daemon CLI result: ${daemonResultCli.output}`);
+      pass('CLI shows concise task results through the shared daemon');
       const daemonLogsCli = await runNode(['cli/openbot.mjs', 'logs', daemonCliJson.taskId, '--daemon', '--json'], isolatedDaemonEnv);
       const daemonLogsJson = JSON.parse(daemonLogsCli.output.trim());
       if (daemonLogsCli.code !== 0 || !Array.isArray(daemonLogsJson) || !daemonLogsJson.length) throw new Error(`daemon CLI logs: ${daemonLogsCli.output}`);

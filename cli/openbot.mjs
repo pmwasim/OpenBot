@@ -9,11 +9,12 @@ import { openStore } from '../lib/store.mjs';
 import { createEngine } from '../lib/engine.mjs';
 import { createAgentController } from '../lib/agent.mjs';
 import { createRoutineScheduler } from '../lib/routines.mjs';
+import { taskResultView } from '../lib/task-result.mjs';
 import { daemonStatus, startDaemon, stopDaemon } from '../lib/daemon.mjs';
 import { launchDesktop } from '../lib/desktop.mjs';
 import { installService, serviceInfo, uninstallService } from '../lib/service.mjs';
 import {
-  daemonBot, daemonBots, daemonChat, daemonControlTask, daemonCreateBot, daemonCreateMemory, daemonCreateRoutine, daemonCreateSkill, daemonCreateTask, daemonRunTask, daemonTaskEvents, daemonUpdateBot,
+  daemonBot, daemonBots, daemonChat, daemonControlTask, daemonCreateBot, daemonCreateMemory, daemonCreateRoutine, daemonCreateSkill, daemonCreateTask, daemonRunTask, daemonTaskEvents, daemonTaskResult, daemonUpdateBot,
   daemonDecideApproval, daemonDeleteBot, daemonDeleteMemory, daemonDeleteSkill, daemonList, daemonLogs, daemonMemories, daemonResume, daemonUpdateMemory,
   daemonRoutine, daemonRoutines, daemonRunRoutine, daemonShow, daemonSkill, daemonSkills, daemonState, daemonUpdateRoutine, daemonUpdateSkill
 } from '../lib/client.mjs';
@@ -42,6 +43,7 @@ Commands:
   cancel <task-id>   Cancel a task
   resume <task-id>   Resume a paused task
   logs [task-id]     Show event log
+  result <task-id>   Show a concise structured task result
   export <task-id>   Export an append-only audit bundle
   doctor             Check loopback, local model, store, and isolation
   config             Show local configuration
@@ -762,6 +764,20 @@ async function main() {
     }
     const events = await store.listEvents({ taskId: positional[1] });
     print(events, true);
+    return;
+  }
+
+  if (command === 'result') {
+    const id = positional[1];
+    if (!id) fail(Object.assign(new Error('Task id is required.'), { exitCode: 1 }));
+    if (flags.daemon) {
+      print(await daemonTaskResult(config, id), true);
+      return;
+    }
+    const task = await store.getTask(id);
+    if (!task) fail(Object.assign(new Error('Task not found'), { exitCode: 1 }));
+    const events = await store.listEvents({ taskId: id });
+    print(taskResultView(task, events), true);
     return;
   }
 
