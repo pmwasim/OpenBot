@@ -456,7 +456,9 @@ async function main() {
           JSON.stringify({ reply: 'The routine completed.' }),
           JSON.stringify({ reply: 'The interrupted task is complete.' }),
           JSON.stringify({ reply: 'The daemon client completed the task.' }),
-          JSON.stringify({ reply: 'The daemon resumed task is complete.' })
+          JSON.stringify({ reply: 'The daemon resumed task is complete.' }),
+          JSON.stringify({ reply: 'The daemon bot completed.' }),
+          JSON.stringify({ reply: 'The daemon routine completed.' })
         ])
       },
       stdio: ['ignore', 'pipe', 'pipe']
@@ -606,6 +608,48 @@ async function main() {
       const daemonCancelJson = parseCliJson(daemonCancelCli.output);
       if (daemonCancelCli.code !== 0 || daemonCancelJson.task?.status !== 'cancelled') throw new Error(`daemon CLI cancel: ${daemonCancelCli.output}`);
       pass('CLI task inspection, logs, and approval decisions can use the shared daemon');
+      const daemonMemoryAdd = await runNode(['cli/openbot.mjs', 'memory', 'add', '--daemon', '--workspace', agentWs, '--key', 'shared-note', '--value', 'Configured on the daemon.', '--json'], isolatedDaemonEnv);
+      const daemonMemoryAddJson = parseCliJson(daemonMemoryAdd.output);
+      if (daemonMemoryAdd.code !== 0 || !daemonMemoryAddJson.memory?.id) throw new Error(`daemon memory add: ${daemonMemoryAdd.output}`);
+      const daemonMemoryList = await runNode(['cli/openbot.mjs', 'memory', 'list', '--daemon', '--workspace', agentWs, '--json'], isolatedDaemonEnv);
+      const daemonMemoryListJson = parseCliJson(daemonMemoryList.output);
+      if (daemonMemoryList.code !== 0 || !daemonMemoryListJson.memories?.some((item) => item.id === daemonMemoryAddJson.memory.id)) throw new Error(`daemon memory list: ${daemonMemoryList.output}`);
+      const daemonMemoryDelete = await runNode(['cli/openbot.mjs', 'memory', 'delete', daemonMemoryAddJson.memory.id, '--daemon', '--json'], isolatedDaemonEnv);
+      if (daemonMemoryDelete.code !== 0) throw new Error(`daemon memory delete: ${daemonMemoryDelete.output}`);
+      const daemonSkillAdd = await runNode(['cli/openbot.mjs', 'skill', 'add', '--daemon', '--name', 'daemon-check', '--description', 'Shared daemon guidance', '--instructions', 'Use the shared daemon safely.', '--json'], isolatedDaemonEnv);
+      const daemonSkillAddJson = parseCliJson(daemonSkillAdd.output);
+      if (daemonSkillAdd.code !== 0 || !daemonSkillAddJson.skill?.id) throw new Error(`daemon skill add: ${daemonSkillAdd.output}`);
+      const daemonSkillList = await runNode(['cli/openbot.mjs', 'skill', 'list', '--daemon', '--json'], isolatedDaemonEnv);
+      const daemonSkillListJson = parseCliJson(daemonSkillList.output);
+      if (daemonSkillList.code !== 0 || !daemonSkillListJson.skills?.some((item) => item.id === daemonSkillAddJson.skill.id)) throw new Error(`daemon skill list: ${daemonSkillList.output}`);
+      const daemonSkillDelete = await runNode(['cli/openbot.mjs', 'skill', 'delete', daemonSkillAddJson.skill.id, '--daemon', '--json'], isolatedDaemonEnv);
+      if (daemonSkillDelete.code !== 0) throw new Error(`daemon skill delete: ${daemonSkillDelete.output}`);
+      const daemonBotAdd = await runNode(['cli/openbot.mjs', 'bot', 'add', '--daemon', '--name', 'Daemon steward', '--role', 'Review shared work', '--instructions', 'Review the shared task safely.', '--workspace', agentWs, '--json'], isolatedDaemonEnv);
+      const daemonBotAddJson = parseCliJson(daemonBotAdd.output);
+      if (daemonBotAdd.code !== 0 || !daemonBotAddJson.bot?.id) throw new Error(`daemon bot add: ${daemonBotAdd.output}`);
+      const daemonBotList = await runNode(['cli/openbot.mjs', 'bot', 'list', '--daemon', '--json'], isolatedDaemonEnv);
+      const daemonBotListJson = parseCliJson(daemonBotList.output);
+      if (daemonBotList.code !== 0 || !daemonBotListJson.bots?.some((item) => item.id === daemonBotAddJson.bot.id)) throw new Error(`daemon bot list: ${daemonBotList.output}`);
+      const daemonBotChat = await runNode(['cli/openbot.mjs', 'bot', 'chat', daemonBotAddJson.bot.id, '--daemon', '--workspace', agentWs, '--json', 'Use the shared bot.'], isolatedDaemonEnv, { timeoutMs: 20000 });
+      const daemonBotChatJson = parseCliJson(daemonBotChat.output);
+      if (daemonBotChat.code !== 0 || daemonBotChatJson.status !== 'completed' || daemonBotChatJson.reply !== 'The daemon bot completed.') throw new Error(`daemon bot chat: ${daemonBotChat.output}`);
+      const daemonBotDelete = await runNode(['cli/openbot.mjs', 'bot', 'delete', daemonBotAddJson.bot.id, '--daemon', '--json'], isolatedDaemonEnv);
+      if (daemonBotDelete.code !== 0) throw new Error(`daemon bot delete: ${daemonBotDelete.output}`);
+      const daemonRoutineAdd = await runNode(['cli/openbot.mjs', 'routine', 'add', '--daemon', '--title', 'Daemon review', '--schedule', 'every 15m', '--workspace', agentWs, '--json', 'Review shared daemon state.'], isolatedDaemonEnv);
+      const daemonRoutineAddJson = parseCliJson(daemonRoutineAdd.output);
+      if (daemonRoutineAdd.code !== 0 || !daemonRoutineAddJson.routine?.id) throw new Error(`daemon routine add: ${daemonRoutineAdd.output}`);
+      const daemonRoutineList = await runNode(['cli/openbot.mjs', 'routine', 'list', '--daemon', '--json'], isolatedDaemonEnv);
+      const daemonRoutineListJson = parseCliJson(daemonRoutineList.output);
+      if (daemonRoutineList.code !== 0 || !daemonRoutineListJson.routines?.some((item) => item.id === daemonRoutineAddJson.routine.id)) throw new Error(`daemon routine list: ${daemonRoutineList.output}`);
+      const daemonRoutinePause = await runNode(['cli/openbot.mjs', 'routine', 'pause', daemonRoutineAddJson.routine.id, '--daemon', '--json'], isolatedDaemonEnv);
+      const daemonRoutinePauseJson = parseCliJson(daemonRoutinePause.output);
+      if (daemonRoutinePause.code !== 0 || daemonRoutinePauseJson.routine?.enabled !== false) throw new Error(`daemon routine pause: ${daemonRoutinePause.output}`);
+      const daemonRoutineEnable = await runNode(['cli/openbot.mjs', 'routine', 'enable', daemonRoutineAddJson.routine.id, '--daemon', '--json'], isolatedDaemonEnv);
+      if (daemonRoutineEnable.code !== 0) throw new Error(`daemon routine enable: ${daemonRoutineEnable.output}`);
+      const daemonRoutineRun = await runNode(['cli/openbot.mjs', 'routine', 'run', daemonRoutineAddJson.routine.id, '--daemon', '--json'], isolatedDaemonEnv, { timeoutMs: 20000 });
+      const daemonRoutineRunJson = parseCliJson(daemonRoutineRun.output);
+      if (daemonRoutineRun.code !== 0 || daemonRoutineRunJson.result?.status !== 'completed') throw new Error(`daemon routine run: ${daemonRoutineRun.output}`);
+      pass('CLI memory, skills, bots, and routines can use the shared daemon');
       const daemonTaskId = daemonCliJson.taskId;
       const taskEvents = await http(`/api/tasks/${encodeURIComponent(daemonTaskId)}/events`);
       const taskEventsBody = JSON.parse(taskEvents.body);

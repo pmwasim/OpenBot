@@ -10,7 +10,11 @@ import { createEngine } from '../lib/engine.mjs';
 import { createAgentController } from '../lib/agent.mjs';
 import { createRoutineScheduler } from '../lib/routines.mjs';
 import { daemonStatus, startDaemon, stopDaemon } from '../lib/daemon.mjs';
-import { daemonChat, daemonControlTask, daemonDecideApproval, daemonList, daemonLogs, daemonResume, daemonShow, daemonState } from '../lib/client.mjs';
+import {
+  daemonBot, daemonBots, daemonChat, daemonControlTask, daemonCreateBot, daemonCreateMemory, daemonCreateRoutine, daemonCreateSkill,
+  daemonDecideApproval, daemonDeleteBot, daemonDeleteMemory, daemonDeleteSkill, daemonList, daemonLogs, daemonMemories, daemonResume,
+  daemonRoutine, daemonRoutines, daemonRunRoutine, daemonShow, daemonSkill, daemonSkills, daemonState, daemonUpdateRoutine
+} from '../lib/client.mjs';
 
 const USAGE = `OpenBot CLI (local agent)
 
@@ -220,8 +224,8 @@ function fixtureAgentProvider(raw) {
 
 async function runAgent(store, config, flags, prompt, options = {}) {
   if (!prompt) fail(Object.assign(new Error('chat requires a prompt.'), { exitCode: 1 }));
-  const bot = flags.bot ? await store.getBot(flags.bot) : null;
-  if (flags.bot && !bot) fail(Object.assign(new Error('Bot not found.'), { exitCode: 1 }));
+  const bot = flags.bot && !flags.daemon ? await store.getBot(flags.bot) : null;
+  if (flags.bot && !flags.daemon && !bot) fail(Object.assign(new Error('Bot not found.'), { exitCode: 1 }));
   const workspace = flags.workspace || bot?.workspace;
   if (!workspace || workspace === 'local') fail(Object.assign(new Error('Workspace is required (--workspace) or provided by the bot.'), { exitCode: 1 }));
 
@@ -235,7 +239,7 @@ async function runAgent(store, config, flags, prompt, options = {}) {
         taskId: flags.taskId || undefined,
         maxTurns: flags.maxTurns || undefined,
         skill: flags.skill || undefined,
-        botId: bot?.id || undefined
+        botId: bot?.id || flags.bot || undefined
       });
     } catch (error) {
       error.exitCode = error.statusCode === 403 ? 2 : 1;
@@ -402,19 +406,21 @@ async function main() {
     const subcommand = positional[1];
     if (subcommand === 'list') {
       if (!flags.workspace || flags.workspace === 'local') fail(Object.assign(new Error('Workspace is required (--workspace).'), { exitCode: 1 }));
-      print({ memories: await store.listMemories({ workspace: flags.workspace }) }, true);
+      print(flags.daemon ? await daemonMemories(config, flags.workspace) : { memories: await store.listMemories({ workspace: flags.workspace }) }, true);
       return;
     }
     if (subcommand === 'add') {
       if (!flags.workspace || flags.workspace === 'local') fail(Object.assign(new Error('Workspace is required (--workspace).'), { exitCode: 1 }));
-      const created = await store.createMemory({ workspace: flags.workspace, key: flags.key, value: flags.value });
+      const created = flags.daemon
+        ? await daemonCreateMemory(config, { workspace: flags.workspace, key: flags.key, value: flags.value })
+        : await store.createMemory({ workspace: flags.workspace, key: flags.key, value: flags.value });
       print(created, true);
       return;
     }
     if (subcommand === 'delete') {
       const id = positional[2];
       if (!id) fail(Object.assign(new Error('Memory id is required.'), { exitCode: 1 }));
-      print(await store.deleteMemory(id), true);
+      print(flags.daemon ? await daemonDeleteMemory(config, id) : await store.deleteMemory(id), true);
       return;
     }
     fail(Object.assign(new Error('Use memory list, memory add, or memory delete.'), { exitCode: 1 }));
@@ -423,27 +429,28 @@ async function main() {
   if (command === 'bot') {
     const subcommand = positional[1];
     if (subcommand === 'list') {
-      const bots = await store.listBots();
+      const bots = flags.daemon ? (await daemonBots(config)).bots || [] : await store.listBots();
       if (asJson) print({ bots }, true);
       else if (!bots.length) print('No bots.');
       else for (const bot of bots) console.log(`${bot.id}\t${bot.name}\t${bot.role || 'local bot'}\t${bot.messageCount || 0} messages`);
       return;
     }
     if (subcommand === 'add') {
-      const created = await store.createBot({ name: flags.name || positional[2], role: flags.role, instructions: flags.instructions || positional.slice(3).join(' '), workspace: flags.workspace, skill: flags.skill });
+      const payload = { name: flags.name || positional[2], role: flags.role, instructions: flags.instructions || positional.slice(3).join(' '), workspace: flags.workspace, skill: flags.skill };
+      const created = flags.daemon ? await daemonCreateBot(config, payload) : await store.createBot(payload);
       print(created, true);
       return;
     }
     if (subcommand === 'delete') {
       const id = positional[2];
       if (!id) fail(Object.assign(new Error('Bot id is required.'), { exitCode: 1 }));
-      print(await store.deleteBot(id), true);
+      print(flags.daemon ? await daemonDeleteBot(config, id) : await store.deleteBot(id), true);
       return;
     }
     if (subcommand === 'chat') {
       const id = positional[2];
       if (!id) fail(Object.assign(new Error('Bot id is required.'), { exitCode: 1 }));
-      const bot = await store.getBot(id);
+      const bot = flags.daemon ? (await daemonBot(config, id)).bot : await store.getBot(id);
       if (!bot) fail(Object.assign(new Error('Bot not found.'), { exitCode: 1 }));
       await runAgent(store, config, { ...flags, bot: id, workspace: flags.workspace || bot.workspace }, positional.slice(3).join(' ').trim());
       return;
@@ -454,18 +461,19 @@ async function main() {
   if (command === 'skill') {
     const subcommand = positional[1];
     if (subcommand === 'list') {
-      print({ skills: await store.listSkills() }, true);
+      print(flags.daemon ? await daemonSkills(config) : { skills: await store.listSkills() }, true);
       return;
     }
     if (subcommand === 'add') {
-      const created = await store.createSkill({ name: flags.name, description: flags.description, instructions: flags.instructions });
+      const payload = { name: flags.name, description: flags.description, instructions: flags.instructions };
+      const created = flags.daemon ? await daemonCreateSkill(config, payload) : await store.createSkill(payload);
       print(created, true);
       return;
     }
     if (subcommand === 'delete') {
       const id = positional[2];
       if (!id) fail(Object.assign(new Error('Skill id is required.'), { exitCode: 1 }));
-      print(await store.deleteSkill(id), true);
+      print(flags.daemon ? await daemonDeleteSkill(config, id) : await store.deleteSkill(id), true);
       return;
     }
     fail(Object.assign(new Error('Use skill list, skill add, or skill delete.'), { exitCode: 1 }));
@@ -474,28 +482,36 @@ async function main() {
   if (command === 'routine') {
     const subcommand = positional[1];
     if (subcommand === 'list') {
-      const routines = await store.listRoutines();
+      const routines = flags.daemon ? (await daemonRoutines(config)).routines || [] : await store.listRoutines();
       if (asJson) print({ routines }, true);
       else if (!routines.length) print('No routines.');
       else for (const routine of routines) console.log(`${routine.id}\t${routine.enabled ? 'enabled' : 'paused'}\t${routine.schedule}\t${routine.title}`);
       return;
     }
     if (subcommand === 'add') {
-      const created = await store.createRoutine({ title: flags.title, schedule: flags.schedule, prompt: flags.prompt || positional.slice(2).join(' '), workspace: flags.workspace, skill: flags.skill, botId: flags.bot });
+      const payload = { title: flags.title, schedule: flags.schedule, prompt: flags.prompt || positional.slice(2).join(' '), workspace: flags.workspace, skill: flags.skill, botId: flags.bot };
+      const created = flags.daemon ? await daemonCreateRoutine(config, payload) : await store.createRoutine(payload);
       print(created, true);
       return;
     }
     if (['pause', 'enable'].includes(subcommand)) {
       const id = positional[2];
       if (!id) fail(Object.assign(new Error('Routine id is required.'), { exitCode: 1 }));
-      print(await store.updateRoutine(id, { enabled: subcommand === 'enable' }), true);
+      print(flags.daemon ? await daemonUpdateRoutine(config, id, { enabled: subcommand === 'enable' }) : await store.updateRoutine(id, { enabled: subcommand === 'enable' }), true);
       return;
     }
     if (subcommand === 'run') {
       const id = positional[2];
       if (!id) fail(Object.assign(new Error('Routine id is required.'), { exitCode: 1 }));
-      const routine = await store.getRoutine(id);
+      const routine = flags.daemon ? (await daemonRoutine(config, id)).routine : await store.getRoutine(id);
       if (!routine) fail(Object.assign(new Error('Routine not found.'), { exitCode: 1 }));
+      if (flags.daemon) {
+        const remote = await daemonRunRoutine(config, id);
+        const result = remote.result;
+        print({ routineId: id, result }, true);
+        if (!['completed', 'waiting_approval'].includes(result.status)) process.exit(1);
+        return;
+      }
       const scheduler = createRoutineScheduler({
         store,
         runRoutine: async (item) => runAgent(store, config, { ...flags, workspace: item.workspace, skill: item.skill, bot: item.botId, json: true }, item.prompt, { printResult: false }),

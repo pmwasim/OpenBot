@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.5 — 2026-08-27
+
+Added shared-daemon administration parity for local bots, skills, memory, and routines.
+
+- Route `memory`, `skill`, `bot`, and `routine` administration through the shared daemon with `--daemon`.
+- Keep durable profiles, reusable guidance, workspace-scoped facts, schedules, and run history in the daemon-owned store.
+- Support daemon-routed named-bot chat and Run now without requiring a second populated local data directory.
+- Preserve direct local administration, workspace containment, approval boundaries, redaction, and bounded agent execution.
+- Expand release verification to cover the complete shared-daemon administration path.
+
 ## 0.4.4 — 2026-08-27
 
 Added daemon-routed CLI task control.
