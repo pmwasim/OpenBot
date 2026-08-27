@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.15 — 2026-08-27
+
+Hardened task-start and cancellation races.
+
+- Claim new and pending tasks before starting the agent controller.
+- Register cancellation before the claim so a concurrent pause or cancel cannot be overwritten by late startup.
+- Preserve durable cancelled/paused state and prevent false execution after a stop request.
+- Expand end-to-end coverage for in-flight cancellation through the daemon.
+
+## 0.4.14 — 2026-08-27
+
+Added in-flight cooperative cancellation.
+
+- Propagate task stop signals from the daemon to local model requests, shell children, and browser fetches.
+- Abort active work after durable pause/cancel transitions while preserving task and audit history.
+- Add end-to-end and worker-level regression coverage for cancellation.
+- Keep file operations bounded at action boundaries and document that completed effects cannot be undone.
+
 ## 0.4.13 — 2026-08-27
 
 Hardened cooperative task stopping.

@@ -257,6 +257,31 @@ async function main() {
   if (controlledResult.status !== 'cancelled' || controlledProviderCalls !== 1 || controlledStore.events.some((event) => event.type === 'agent.completed')) throw new Error('agent cancellation race');
   pass('agent loop observes pause/cancel state changes before claiming completion');
 
+  let signalStatus = 'pending';
+  const signalStore = fakeAgentStore();
+  signalStore.getTask = async () => ({ id: 'task-agent-harness', workspace: '/tmp/agent-harness', status: signalStatus });
+  const signalController = new AbortController();
+  const signalLoop = createAgentController({
+    store: signalStore,
+    engine: loopEngine,
+    provider: { async chatStructured({ signal }) {
+      if (!signal) return { ok: false, status: 500, error: 'missing cancellation signal' };
+      return new Promise((resolve, reject) => {
+        signal.addEventListener('abort', () => {
+          signalStatus = 'cancelled';
+          const error = new Error('model request aborted');
+          error.name = 'AbortError';
+          reject(error);
+        }, { once: true });
+      });
+    } }
+  });
+  const signalRun = signalLoop.run({ prompt: 'Stop the in-flight model request.', workspace: '/tmp/agent-harness', model: 'fixture', signal: signalController.signal });
+  setTimeout(() => signalController.abort(), 20);
+  const signalResult = await signalRun;
+  if (signalResult.status !== 'cancelled' || signalStore.events.some((event) => event.type === 'agent.completed')) throw new Error('agent signal cancellation');
+  pass('agent cancellation signal reaches the in-flight model request');
+
   const memoryContextStore = fakeAgentStore();
   memoryContextStore.listMemories = async () => [{ key: 'response_style', value: 'Use concise bullet points.', workspace: '/tmp/agent-harness' }];
   let capturedMemoryMessages = [];
@@ -321,6 +346,7 @@ async function main() {
   const { openStore } = await import(pathToFileURL(join(root, 'lib/store.mjs')).href);
   const { createRoutineScheduler, nextRoutineRun, parseRoutineSchedule } = await import(pathToFileURL(join(root, 'lib/routines.mjs')).href);
   const { fileRead, fileWrite } = await import(pathToFileURL(join(root, 'lib/workers/file.mjs')).href);
+  const { shellExec } = await import(pathToFileURL(join(root, 'lib/workers/shell.mjs')).href);
   try {
     const freshStore = await openStore({ dataDir: freshDataDir });
     const freshState = await freshStore.getState();
@@ -524,6 +550,22 @@ async function main() {
       const parsed = JSON.parse(state.body);
       if (state.status !== 200 || !parsed.approvals || !Array.isArray(parsed.bots)) throw new Error('invalid state');
       pass('state endpoint responds with approvals');
+      const inFlightRequest = http('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'Cancel this waiting task.', workspace: agentWs, model: 'fixture-slow' }) });
+      let inFlightTask = null;
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        const taskSnapshot = JSON.parse((await http('/api/tasks')).body).tasks || [];
+        inFlightTask = taskSnapshot.find((item) => item.prompt === 'Cancel this waiting task.');
+        if (inFlightTask && ['pending', 'running'].includes(inFlightTask.status)) break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      if (!inFlightTask) throw new Error('in-flight task was not created');
+      const inFlightControl = await http(`/api/tasks/${encodeURIComponent(inFlightTask.id)}/control`, { method: 'POST', body: JSON.stringify({ action: 'cancel' }) });
+      const inFlightResponse = JSON.parse((await inFlightRequest).body);
+      const inFlightAfter = JSON.parse((await http(`/api/tasks/${encodeURIComponent(inFlightTask.id)}`)).body);
+      if (inFlightControl.status !== 200 || inFlightResponse.status !== 'cancelled' || inFlightAfter.task?.status !== 'cancelled' || inFlightAfter.events?.some((event) => event.type === 'agent.completed')) {
+        throw new Error(`in-flight cancellation ${inFlightControl.status} ${JSON.stringify(inFlightResponse)} ${JSON.stringify(inFlightAfter)}`);
+      }
+      pass('in-flight task cancellation aborts model work and preserves cancelled state');
       const botCreate = await http('/api/bots', { method: 'POST', body: JSON.stringify({ name: 'Release steward', role: 'Review local releases', instructions: 'Check tests, summarize risks, and never publish without approval.', workspace: agentWs }) });
       const botCreateBody = JSON.parse(botCreate.body);
       if (botCreate.status !== 200 || !botCreateBody.bot?.id || botCreateBody.bot.name !== 'Release steward') throw new Error(`bot create ${botCreate.status} ${botCreate.body}`);
@@ -851,6 +893,12 @@ async function main() {
     if (!safe.ok || !String(safe.result?.stdout || '').trim()) {
       throw new Error(`safe shell failed: ${JSON.stringify(safe.result)}`);
     }
+    const shellAbort = new AbortController();
+    shellAbort.abort();
+    const shellRun = shellExec(shellWs, 'uname', { timeoutMs: 10000, signal: shellAbort.signal });
+    const abortedShell = await shellRun;
+    if (!abortedShell.aborted) throw new Error(`shell cancellation was not observed: ${JSON.stringify(abortedShell)}`);
+    pass('SHELL hardening: in-flight worker cancellation terminates the child process');
     const destructive = await engine.act({
       workspace: shellWs,
       tool: 'shell.exec',

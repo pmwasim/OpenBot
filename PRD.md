@@ -112,6 +112,8 @@ The first meaningful “bot, not control panel” milestone is implemented on th
 - Operators can edit bot role/instructions, local skill definitions, and workspace-scoped memory facts from the dashboard without losing durable identity, bot/routine references, or memory scope.
 - Operators can pause, resume, or cancel controllable tasks from recent-task dashboard cards, with durable status transitions and refreshed activity history.
 - The agent loop rechecks durable operator control state at model/action boundaries and does not claim completion after a task is paused or cancelled.
+- The daemon propagates pause/cancel signals to in-flight local model, shell, and browser operations where the underlying runtime supports cancellation.
+- New and pending tasks are claimed before controller execution, preventing a concurrent pause/cancel request from being overwritten by late startup state.
 
 This is not a claim of parity with a managed cloud service. Hosted computers, persistent shared environments, connectors, collaboration, full-duplex streaming clients, a complete remote client for every command, and an OS-installed service manager remain OpenBot roadmap items; OpenBot currently provides scoped operator-controlled local memory, explicit declarative local skills, local routines, a portable detached daemon, daemon-routed CLI chat, task management, and task control, plus incremental task activity visibility while the host is active. OpenBot's differentiator is local ownership, zero mandatory spend, and inspectable policy/audit behavior.
 

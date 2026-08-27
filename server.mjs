@@ -51,7 +51,20 @@ function fixtureAgentProvider(raw) {
   catch { replies = []; }
   let index = 0;
   return {
-    async chatStructured({ model }) {
+    async chatStructured({ model, signal }) {
+      if (model === 'fixture-slow') {
+        await new Promise((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error('Slow fixture timed out.')), 30000);
+          const abort = () => {
+            clearTimeout(timer);
+            const error = new Error('Slow fixture aborted.');
+            error.name = 'AbortError';
+            reject(error);
+          };
+          if (signal?.aborted) abort();
+          else signal?.addEventListener('abort', abort, { once: true });
+        });
+      }
       if (index >= replies.length) return { ok: false, status: 502, model, error: 'Test agent response queue is exhausted.' };
       return { ok: true, status: 200, model: model || 'fixture', reply: replies[index++] };
     }
@@ -61,6 +74,7 @@ function fixtureAgentProvider(raw) {
 const agentProvider = process.env.OPENBOT_TEST_AGENT_RESPONSES
   ? fixtureAgentProvider(process.env.OPENBOT_TEST_AGENT_RESPONSES)
   : localModel;
+const activeTaskControllers = new Map();
 
 async function resolveAgentModel(requested) {
   if (process.env.OPENBOT_TEST_AGENT_RESPONSES) return requested || 'fixture';
@@ -82,29 +96,64 @@ async function resolveBot(botId) {
 }
 
 async function runAgentTask({ taskId, prompt, workspace, model, maxTurns, approvalId, skill, botId }) {
+  const isNewTask = !taskId;
   const existingTask = taskId ? await store.getTask(taskId) : null;
   const bot = await resolveBot(botId || existingTask?.botId);
   const selectedWorkspace = workspace || bot?.workspace;
+  if (!selectedWorkspace || selectedWorkspace === 'local') throw Object.assign(new Error('An explicit workspace path is required for agent work.'), { statusCode: 400 });
   if (bot && selectedWorkspace !== bot.workspace) throw Object.assign(new Error('Bot workspace does not match the requested workspace.'), { statusCode: 409 });
-  const controller = createAgentController({
-    store,
-    provider: agentProvider,
-    engine: createEngine({ store, actor: 'agent' }),
-    actor: 'agent',
-    maxTurns: Math.min(Number(maxTurns) > 0 ? Number(maxTurns) : config.agentMaxTurns, config.agentMaxTurns),
-    maxActions: config.agentMaxActions,
-    maxContextChars: config.agentContextChars
-  });
-  const result = await controller.run({ taskId, prompt, workspace: selectedWorkspace, model, approvalId, skill, bot });
-  if (bot && !taskId) {
-    await store.recordBotMessage(bot.id, { role: 'user', content: prompt, taskId });
-    await store.recordBotMessage(bot.id, {
-      role: 'assistant',
-      content: result.reply || (result.status === 'waiting_approval' ? 'Waiting for approval before continuing.' : `Task stopped with status: ${result.status}.`),
-      taskId: result.taskId
-    });
+  if (skill && store.getSkill) {
+    const selectedSkill = await store.getSkill(skill);
+    if (!selectedSkill) throw Object.assign(new Error(`Local skill not found: ${skill}`), { statusCode: 404 });
+    skill = selectedSkill.id;
   }
-  return { botId: bot?.id || null, ...result };
+  if (isNewTask) {
+    const created = await store.createTask({
+      prompt,
+      kind: 'plan',
+      provider: 'local-model',
+      workspace: selectedWorkspace,
+      owner: 'agent',
+      skill: skill || null,
+      botId: bot?.id || null
+    });
+    taskId = created.task.id;
+  }
+  if (activeTaskControllers.has(taskId)) throw Object.assign(new Error('Task is already running.'), { statusCode: 409 });
+  const abortController = new AbortController();
+  activeTaskControllers.set(taskId, abortController);
+  try {
+    if (!existingTask || existingTask.status === 'pending') {
+      try {
+        await store.setTaskStatus(taskId, 'start');
+      } catch (error) {
+        const current = await store.getTask(taskId);
+        if (['paused', 'cancelled'].includes(current?.status)) return { botId: bot?.id || null, taskId, status: current.status, reply: null, actions: [], approvals: [], turns: 0 };
+        throw error;
+      }
+    }
+    const controller = createAgentController({
+      store,
+      provider: agentProvider,
+      engine: createEngine({ store, actor: 'agent' }),
+      actor: 'agent',
+      maxTurns: Math.min(Number(maxTurns) > 0 ? Number(maxTurns) : config.agentMaxTurns, config.agentMaxTurns),
+      maxActions: config.agentMaxActions,
+      maxContextChars: config.agentContextChars
+    });
+    const result = await controller.run({ taskId, prompt, workspace: selectedWorkspace, model, approvalId, skill, bot, signal: abortController.signal });
+    if (bot && isNewTask) {
+      await store.recordBotMessage(bot.id, { role: 'user', content: prompt, taskId });
+      await store.recordBotMessage(bot.id, {
+        role: 'assistant',
+        content: result.reply || (result.status === 'waiting_approval' ? 'Waiting for approval before continuing.' : `Task stopped with status: ${result.status}.`),
+        taskId: result.taskId
+      });
+    }
+    return { botId: bot?.id || null, ...result };
+  } finally {
+    if (activeTaskControllers.get(taskId) === abortController) activeTaskControllers.delete(taskId);
+  }
 }
 
 const routineScheduler = createRoutineScheduler({
@@ -287,7 +336,9 @@ const app = http.createServer(async (req, res) => {
       const taskId = url.pathname.slice('/api/tasks/'.length, -'/control'.length);
       const { action } = await body(req);
       if (!['pause', 'cancel'].includes(action)) return json(res, 400, { error: 'Task control action must be pause or cancel.' });
-      return json(res, 200, { task: await store.setTaskStatus(taskId, action) });
+      const updated = await store.setTaskStatus(taskId, action);
+      activeTaskControllers.get(taskId)?.abort();
+      return json(res, 200, { task: updated });
     }
     if (url.pathname === '/api/chat' && req.method === 'POST') {
       const { message, model, workspace, taskId, maxTurns, skill, botId } = await body(req);
