@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.25 — 2026-08-27
+
+Hardened structured task results and added CLI parity.
+
+- Bound result text, action arguments, action results, and action count in the concise task-result contract, with secret redaction reapplied before delivery.
+- Add `openbot result <task-id>` for local stores and `openbot result --daemon <task-id>` for the shared daemon.
+- Preserve the same dashboard/API result view, full audit export, approval and workspace boundaries, zero mandatory spend, old-laptop portability, and brand-neutral public surfaces.
+
 ## 0.4.24 — 2026-08-27
 
 Added concise structured result views for durable tasks.

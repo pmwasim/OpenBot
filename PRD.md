@@ -103,6 +103,7 @@ The first meaningful “bot, not control panel” milestone is implemented on th
 - Operators can inspect redacted effective daemon, provider, privacy, resource, and agent-limit settings from the dashboard; changes remain environment-configured and restart-controlled.
 - Operators can open or download a fixed-name JSON task artifact from each recent-task card; the artifact contains only that task's bounded record and redacted durable event history.
 - Operators can preview a task result in the dashboard or read `/api/tasks/:id/result` for a concise, redacted outcome and bounded action summary without loading the full audit history.
+- CLI operators can read the same concise result contract locally or through the shared daemon with `result <task-id>` and `result --daemon <task-id>`; text, arguments, action results, and action count remain bounded.
 - Operators can save, list, and delete workspace-scoped local memory; only matching memory is injected into agent context after redaction.
 - Operators can save, list, select, and delete local skills; selected skills are redacted, bounded, audited, and injected only as untrusted guidance under the OpenBot policy.
 - Operators can create, list, pause, enable, run, and audit local routines. The in-process scheduler uses one lightweight timer, caps routines at 50 and run history at 20 per routine, and never auto-approves consequential actions.
