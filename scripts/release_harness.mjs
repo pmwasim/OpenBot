@@ -80,8 +80,8 @@ async function main() {
   }
   const indexSource = await readFile(join(root, 'public/index.html'), 'utf8');
   const appSource = await readFile(join(root, 'public/app.js'), 'utf8');
-  if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"')) throw new Error('dashboard is missing an explicit workspace input');
-  if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/resume')) throw new Error('dashboard does not expose agent actions, resume, and audit links');
+  if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"') || !indexSource.includes('id="recent-tasks"')) throw new Error('dashboard is missing workspace or task history');
+  if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/resume') || !appSource.includes('/api/tasks')) throw new Error('dashboard does not expose agent actions, resume, task history, and audit links');
   if (appSource.includes('e.innerHTML=`')) throw new Error('dashboard renders state with unsafe innerHTML');
   pass('dashboard exposes workspace, action cards, and audit links safely');
 
@@ -231,6 +231,17 @@ async function main() {
     const cliFail = await runNode(['cli/openbot.mjs', 'show', 'missing-task-id'], { OPENBOT_DATA_DIR: dataDir });
     if (cliFail.code === 0) throw new Error('show missing should fail');
     pass('CLI run persists a task and fails on missing show');
+    const legacyDoctor = await runNode(['cli/openbot.mjs', 'doctor', '--json'], {
+      OPENBOT_DATA_DIR: dataDir,
+      OPENBOT_RESOURCE_PROFILE: 'legacy',
+      HOST: '127.0.0.1'
+    });
+    const legacyDoctorJson = parseCliJson(legacyDoctor.output);
+    const resourceCheck = legacyDoctorJson.checks?.find((check) => check.name === 'resources');
+    if (!resourceCheck || resourceCheck.profile !== 'legacy' || resourceCheck.agentMaxTurns !== 3 || resourceCheck.agentMaxActions !== 3 || !resourceCheck.guidance) {
+      throw new Error(`legacy doctor: ${legacyDoctor.output}`);
+    }
+    pass('doctor explains legacy resource limits without requiring a model');
 
     const child = spawn(process.execPath, ['server.mjs'], {
       cwd: root,
@@ -262,6 +273,10 @@ async function main() {
       const parsed = JSON.parse(state.body);
       if (state.status !== 200 || !parsed.approvals) throw new Error('invalid state');
       pass('state endpoint responds with approvals');
+      const taskList = await http('/api/tasks');
+      const taskListBody = JSON.parse(taskList.body);
+      if (taskList.status !== 200 || !Array.isArray(taskListBody.tasks)) throw new Error(`task list ${taskList.status} ${taskList.body}`);
+      pass('task history endpoint returns durable tasks');
       await writeFile(join(agentWs, 'notes.txt'), 'agent fixture\n');
       const agentRead = await http('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'Read the notes.', workspace: agentWs, model: 'fixture' }) });
       const agentReadBody = JSON.parse(agentRead.body);

@@ -93,7 +93,8 @@ The first meaningful “bot, not control panel” milestone is implemented on th
 - `/api/chat`, `openbot chat`, and the dashboard use the same controller and existing policy/engine boundary.
 - Safe reads/diagnostics execute automatically; writes, deletion, publishing, external communication, and other consequential effects stop with explicit approval.
 - Model context, action results, approval details, and persisted audit events are redacted and bounded.
-- The release harness covers 47 checks, including malformed model output, approval stop, low-resource execution, CLI/API flows, UI safety, workspace containment, and audit redaction.
+- The release harness covers 52 checks, including malformed model output, approval stop, low-resource execution, CLI/API flows, task history, UI safety, workspace containment, and audit redaction.
+- The dashboard shows recent durable tasks with audit links, and `doctor --json` explains the low-resource profile without requiring a model.
 
 This is not a claim of Grok Bot parity. Grok Bot's managed cloud computer, persistent shared environment, connectors/MCP, skills, routines, memory, and collaboration remain OpenBot roadmap items. OpenBot's differentiator is local ownership, zero mandatory spend, and inspectable policy/audit behavior.
 
