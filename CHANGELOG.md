@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.27 — 2026-08-27
+
+Made named bots usable as persistent conversations across clients.
+
+- Expose bounded named-bot history at `GET /api/bots/:id/messages`, returning only redacted conversation message fields.
+- Load a selected bot's durable conversation in the dashboard and refresh it after task completion, failure, or cancellation.
+- Add `openbot bot history <id>` for local or daemon-routed conversation inspection.
+- Preserve task approval gates, workspace/provider boundaries, zero mandatory spend, old-laptop portability, and brand-neutral public surfaces.
+
 ## 0.4.26 — 2026-08-27
 
 Added bounded typed task-artifact inventory and selective access.
