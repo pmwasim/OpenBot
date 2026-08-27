@@ -9,13 +9,16 @@ import { openStore } from '../lib/store.mjs';
 import { createEngine } from '../lib/engine.mjs';
 import { createAgentController } from '../lib/agent.mjs';
 import { createRoutineScheduler } from '../lib/routines.mjs';
+import { daemonStatus, startDaemon, stopDaemon } from '../lib/daemon.mjs';
 
 const USAGE = `OpenBot CLI (local agent)
 
 Usage: node cli/openbot.mjs <command> [options]
 
 Commands:
-  start              Start the local OpenBot daemon
+  start              Start the local OpenBot daemon (use --detach for background mode)
+  status             Show local daemon status
+  stop               Stop the local daemon
   run <prompt>       Create a task
   chat <prompt>      Run the bounded local agent loop
   propose            Propose a worker action (file/shell/browser)
@@ -49,6 +52,7 @@ Commands:
 
 Options:
   --json             Print machine-readable JSON
+  --detach           Start the daemon in the background
   --kind <kind>      Task or action kind (plan, file.write, shell.exec, browser.visit, ...)
   --model <name>     Local model name (defaults to the first installed model)
   --key <name>       Memory key for memory add
@@ -104,6 +108,7 @@ function parseArgs(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--json') flags.json = true;
+    else if (arg === '--detach') flags.detach = true;
     else if (arg === '--help' || arg === '-h') flags.help = true;
     else if (arg.startsWith('--') && arg.includes('=')) {
       const eq = arg.indexOf('=');
@@ -274,6 +279,11 @@ async function main() {
     } catch (error) {
       fail(error);
     }
+    if (flags.detach) {
+      try { print(await startDaemon(config, process.env), true); }
+      catch (error) { fail(error); }
+      return;
+    }
     const child = spawn(process.execPath, [join(ROOT, 'server.mjs')], {
       stdio: 'inherit',
       env: process.env,
@@ -281,6 +291,15 @@ async function main() {
     });
     const code = await new Promise((resolve) => child.once('exit', (exitCode) => resolve(exitCode)));
     process.exit(code ?? 1);
+  }
+
+  if (command === 'status' || command === 'stop') {
+    try {
+      const result = command === 'status' ? await daemonStatus(config) : await stopDaemon(config);
+      print(result, true);
+      if (command === 'status' && result.status !== 'running') process.exit(1);
+    } catch (error) { fail(error); }
+    return;
   }
 
   if (command === 'doctor') {

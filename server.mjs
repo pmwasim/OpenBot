@@ -9,6 +9,7 @@ import { openStore } from './lib/store.mjs';
 import { createEngine } from './lib/engine.mjs';
 import { createAgentController } from './lib/agent.mjs';
 import { createRoutineScheduler } from './lib/routines.mjs';
+import { claimDaemonPid, releaseDaemonPid } from './lib/daemon.mjs';
 
 const config = loadConfig();
 const maxBodyBytes = 64 * 1024;
@@ -32,6 +33,13 @@ if (bind.overridden && !process.env.OPENBOT_AUTH_TOKEN) {
   process.exit(1);
 }
 if (bind.overridden) console.warn(`WARNING: HOST=${config.host} is not loopback. Every request requires Authorization: Bearer <OPENBOT_AUTH_TOKEN>.`);
+
+try {
+  await claimDaemonPid(config.pidFile);
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
 
 const store = await openStore({ dataDir: config.dataDir });
 const providers = createProviderHub(process.env, { modelUrl: config.modelUrl, modelProtocol: config.modelProtocol, remoteBaseUrl: config.remoteBaseUrl });
@@ -279,9 +287,20 @@ const app = http.createServer(async (req, res) => {
   } catch (error) { json(res, error.statusCode || 500, { error: error.message || 'OpenBot failed unexpectedly.' }); }
 });
 
+app.on('error', async (error) => {
+  console.error(error.message);
+  await releaseDaemonPid(config.pidFile);
+  process.exit(1);
+});
+
 app.listen(config.port, config.host, () => {
   routineScheduler.start();
   console.log(`OpenBot is ready at http://${config.host}:${config.port}`);
 });
-process.once('SIGINT', () => { routineScheduler.stop(); app.close(() => process.exit(0)); });
-process.once('SIGTERM', () => { routineScheduler.stop(); app.close(() => process.exit(0)); });
+async function shutdown() {
+  routineScheduler.stop();
+  await releaseDaemonPid(config.pidFile);
+  app.close(() => process.exit(0));
+}
+process.once('SIGINT', () => { void shutdown(); });
+process.once('SIGTERM', () => { void shutdown(); });

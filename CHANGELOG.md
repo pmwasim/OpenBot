@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0 — 2026-08-27
+
+Added a portable local daemon lifecycle for practical background use.
+
+- Start OpenBot in the foreground or with `openbot start --detach` without adding a runtime dependency or paid service.
+- Add `status` and `stop` commands with process identity, health reporting, duplicate-start protection, stale-record cleanup, and clean shutdown.
+- Keep the scheduler and durable task store active after the terminal closes while the host remains powered on.
+- Write a local daemon log under the configured data directory and document the host-local boundary for sleep and shutdown.
+- Expand release verification to cover the detached lifecycle and daemon process record.
+
 ## 0.3.9 — 2026-08-27
 
 Added opt-in local model protocol compatibility.

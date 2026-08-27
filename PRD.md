@@ -98,8 +98,9 @@ The first meaningful “bot, not control panel” milestone is implemented on th
 - Operators can save, list, and delete workspace-scoped local memory; only matching memory is injected into agent context after redaction.
 - Operators can save, list, select, and delete local skills; selected skills are redacted, bounded, audited, and injected only as untrusted guidance under the OpenBot policy.
 - Operators can create, list, pause, enable, run, and audit local routines. The in-process scheduler uses one lightweight timer, caps routines at 50 and run history at 20 per routine, and never auto-approves consequential actions.
+- Operators can start the local daemon in the foreground or detached background mode, inspect process/model status, prevent duplicate starts, and stop it cleanly. The lifecycle uses only stock Node.js facilities, stores a 0600 process record, and writes a local runtime log under the data directory.
 
-This is not a claim of parity with a managed cloud service. Hosted computers, persistent shared environments, connectors, and collaboration remain OpenBot roadmap items; OpenBot currently provides scoped operator-controlled local memory, explicit declarative local skills, and local routines that run while the daemon is active. OpenBot's differentiator is local ownership, zero mandatory spend, and inspectable policy/audit behavior.
+This is not a claim of parity with a managed cloud service. Hosted computers, persistent shared environments, connectors, collaboration, and an OS-installed service manager remain OpenBot roadmap items; OpenBot currently provides scoped operator-controlled local memory, explicit declarative local skills, local routines, and a portable detached daemon that runs while the host is active. OpenBot's differentiator is local ownership, zero mandatory spend, and inspectable policy/audit behavior.
 
 ## 8. User stories
 

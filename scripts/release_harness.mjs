@@ -70,6 +70,7 @@ async function main() {
     'lib/routines.mjs',
     'lib/policy.mjs',
     'lib/provider.mjs',
+    'lib/daemon.mjs',
     'lib/loopback.mjs',
     'lib/engine.mjs',
     'lib/runtime.mjs',
@@ -90,7 +91,7 @@ async function main() {
   if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/resume') || !appSource.includes('resumeTask') || !appSource.includes('Resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('/api/routines') || !appSource.includes('/api/bots') || !appSource.includes('Run now') || !appSource.includes('botId') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, recovery, task history, memory, skills, routines, bots, and audit links');
   if (appSource.includes('e.innerHTML=`')) throw new Error('dashboard renders state with unsafe innerHTML');
   pass('dashboard exposes workspace, action cards, and audit links safely');
-  const publicSurfaceFiles = ['README.md', 'PRD.md', 'SECURITY.md', 'CHANGELOG.md', 'cli/openbot.mjs', 'server.mjs', 'lib/config.mjs', 'lib/provider.mjs', 'lib/agent.mjs', 'lib/store.mjs', 'public/index.html', 'public/app.js', 'public/styles.css'];
+  const publicSurfaceFiles = ['README.md', 'PRD.md', 'SECURITY.md', 'CHANGELOG.md', 'cli/openbot.mjs', 'server.mjs', 'lib/config.mjs', 'lib/provider.mjs', 'lib/daemon.mjs', 'lib/agent.mjs', 'lib/store.mjs', 'public/index.html', 'public/app.js', 'public/styles.css'];
   const forbiddenPublicBrand = /\b(?:Grok|Ollama|OpenAI|Anthropic|Gemini|Claude|Cursor|Groq)\b|x\.ai/i;
   for (const file of publicSurfaceFiles) {
     const source = await readFile(join(root, file), 'utf8');
@@ -182,6 +183,8 @@ async function main() {
   if (publicConfig(legacyConfig).resourceProfile !== 'legacy') throw new Error('legacy profile is not public');
   const protocolConfig = loadConfig({ OPENBOT_MODEL_PROTOCOL: 'chat-completions' });
   if (protocolConfig.modelProtocol !== 'chat-completions' || publicConfig(protocolConfig).modelProtocol !== 'chat-completions') throw new Error('model protocol configuration');
+  const pidConfig = loadConfig({ OPENBOT_DATA_DIR: '/tmp/openbot-test-data' });
+  if (pidConfig.pidFile !== '/tmp/openbot-test-data/openbot.pid') throw new Error(`daemon pid path ${pidConfig.pidFile}`);
   pass('legacy resource profile caps agent work for older CPU-only laptops');
 
   const { parseAgentEnvelope, createAgentController } = await import(pathToFileURL(join(root, 'lib/agent.mjs')).href);
@@ -284,6 +287,7 @@ async function main() {
   const shellWs = await mkdtemp(join(tmpdir(), 'openbot-shell-'));
   const browserWs = await mkdtemp(join(tmpdir(), 'openbot-browser-'));
   const agentWs = await mkdtemp(join(tmpdir(), 'openbot-agent-'));
+  const daemonDataDir = await mkdtemp(join(tmpdir(), 'openbot-daemon-'));
   const { openStore } = await import(pathToFileURL(join(root, 'lib/store.mjs')).href);
   const { createRoutineScheduler, nextRoutineRun, parseRoutineSchedule } = await import(pathToFileURL(join(root, 'lib/routines.mjs')).href);
   const { fileRead, fileWrite } = await import(pathToFileURL(join(root, 'lib/workers/file.mjs')).href);
@@ -402,6 +406,34 @@ async function main() {
       throw new Error(`legacy doctor: ${legacyDoctor.output}`);
     }
     pass('doctor explains legacy resource limits without requiring a model');
+
+    const daemonEnv = { OPENBOT_DATA_DIR: daemonDataDir, HOST: '127.0.0.1', PORT: '4214' };
+    const daemonStart = await runNode(['cli/openbot.mjs', 'start', '--detach', '--json'], daemonEnv, { timeoutMs: 15000 });
+    const daemonStartJson = parseCliJson(daemonStart.output);
+    if (daemonStart.code !== 0 || daemonStartJson.status !== 'running' || !daemonStartJson.pid) {
+      throw new Error(`detached daemon start: ${daemonStart.output}`);
+    }
+    const daemonStatus = await runNode(['cli/openbot.mjs', 'status', '--json'], daemonEnv, { timeoutMs: 10000 });
+    const daemonStatusJson = parseCliJson(daemonStatus.output);
+    if (daemonStatus.code !== 0 || daemonStatusJson.status !== 'running' || daemonStatusJson.pid !== daemonStartJson.pid) {
+      throw new Error(`daemon status: ${daemonStatus.output}`);
+    }
+    const duplicateStart = await runNode(['cli/openbot.mjs', 'start', '--detach', '--json'], daemonEnv, { timeoutMs: 10000 });
+    const duplicateStartJson = parseCliJson(duplicateStart.output);
+    if (duplicateStart.code !== 0 || !duplicateStartJson.alreadyRunning || duplicateStartJson.pid !== daemonStartJson.pid) {
+      throw new Error(`duplicate daemon start: ${duplicateStart.output}`);
+    }
+    const daemonStop = await runNode(['cli/openbot.mjs', 'stop', '--json'], daemonEnv, { timeoutMs: 15000 });
+    const daemonStopJson = parseCliJson(daemonStop.output);
+    if (daemonStop.code !== 0 || daemonStopJson.status !== 'stopped' || daemonStopJson.pid !== daemonStartJson.pid) {
+      throw new Error(`daemon stop: ${daemonStop.output}`);
+    }
+    const stoppedStatus = await runNode(['cli/openbot.mjs', 'status', '--json'], daemonEnv, { timeoutMs: 10000 });
+    const stoppedStatusJson = parseCliJson(stoppedStatus.output);
+    if (stoppedStatus.code === 0 || stoppedStatusJson.status !== 'stopped') {
+      throw new Error(`stopped daemon status: ${stoppedStatus.output}`);
+    }
+    pass('detached daemon start/status/duplicate-start/stop lifecycle is portable');
 
     const child = spawn(process.execPath, ['server.mjs'], {
       cwd: root,
@@ -842,6 +874,7 @@ async function main() {
     await rm(fileWs, { recursive: true, force: true }).catch(() => {});
     await rm(shellWs, { recursive: true, force: true }).catch(() => {});
     await rm(browserWs, { recursive: true, force: true }).catch(() => {});
+    await rm(daemonDataDir, { recursive: true, force: true }).catch(() => {});
   }
 
   const failed = checks.filter((check) => !check.ok);
