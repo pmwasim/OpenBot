@@ -10,7 +10,7 @@ import { createEngine } from '../lib/engine.mjs';
 import { createAgentController } from '../lib/agent.mjs';
 import { createRoutineScheduler } from '../lib/routines.mjs';
 import { daemonStatus, startDaemon, stopDaemon } from '../lib/daemon.mjs';
-import { daemonChat } from '../lib/client.mjs';
+import { daemonChat, daemonDecideApproval, daemonList, daemonLogs, daemonShow, daemonState } from '../lib/client.mjs';
 
 const USAGE = `OpenBot CLI (local agent)
 
@@ -54,7 +54,7 @@ Commands:
 Options:
   --json             Print machine-readable JSON
   --detach           Start the daemon in the background
-  --daemon           Send chat through the local daemon
+  --daemon           Send supported chat and task commands through the local daemon
   --kind <kind>      Task or action kind (plan, file.write, shell.exec, browser.visit, ...)
   --model <name>     Local model name (defaults to the first installed model)
   --key <name>       Memory key for memory add
@@ -158,6 +158,20 @@ async function resolveApprovalId(store, id, actionId) {
   if (direct) return direct.id;
   const byAction = approvals.find((item) => item.actionId === id);
   if (byAction) return byAction.id;
+  fail(Object.assign(new Error('Approval not found'), { exitCode: 1 }));
+}
+
+async function resolveDaemonApprovalId(config, id, actionId) {
+  const state = await daemonState(config);
+  const approvals = state.approvals || [];
+  if (actionId) {
+    const bound = approvals.find((item) => item.actionId === actionId);
+    if (!bound) fail(Object.assign(new Error('No approval is bound to that action.'), { exitCode: 1 }));
+    return bound.id;
+  }
+  if (!id) fail(Object.assign(new Error('Approval id is required.'), { exitCode: 1 }));
+  const direct = approvals.find((item) => item.id === id || item.actionId === id);
+  if (direct) return direct.id;
   fail(Object.assign(new Error('Approval not found'), { exitCode: 1 }));
 }
 
@@ -525,7 +539,7 @@ async function main() {
   }
 
   if (command === 'list') {
-    const tasks = await store.listTasks();
+    const tasks = flags.daemon ? (await daemonList(config)).tasks || [] : await store.listTasks();
     if (asJson || !tasks.length) print(tasks.length ? tasks : (asJson ? [] : 'No tasks.'), asJson || Boolean(tasks.length));
     else for (const task of tasks) console.log(`${task.id}\t${task.status}\t${task.kind}\t${task.prompt}`);
     return;
@@ -534,6 +548,10 @@ async function main() {
   if (command === 'show') {
     const id = positional[1];
     if (!id) fail(Object.assign(new Error('Task id is required.'), { exitCode: 1 }));
+    if (flags.daemon) {
+      print(await daemonShow(config, id), true);
+      return;
+    }
     const task = await store.getTask(id);
     if (!task) fail(Object.assign(new Error('Task not found'), { exitCode: 1 }));
     const events = await store.listEvents({ taskId: id });
@@ -542,9 +560,12 @@ async function main() {
   }
 
   if (command === 'approve' || command === 'reject') {
-    const id = await resolveApprovalId(store, positional[1], flags.actionId);
+    const id = flags.daemon ? await resolveDaemonApprovalId(config, positional[1], flags.actionId) : await resolveApprovalId(store, positional[1], flags.actionId);
     try {
-      const approval = await store.decideApproval(id, command === 'approve' ? 'approved' : 'rejected');
+      const result = flags.daemon
+        ? await daemonDecideApproval(config, id, command === 'approve' ? 'approved' : 'rejected')
+        : { approval: await store.decideApproval(id, command === 'approve' ? 'approved' : 'rejected') };
+      const approval = result.approval;
       print({ approval }, true);
     } catch (error) {
       print({ ok: false, error: error.message, statusCode: error.statusCode || 500 }, true);
@@ -575,6 +596,13 @@ async function main() {
   }
 
   if (command === 'logs') {
+    if (flags.daemon) {
+      const id = positional[1];
+      if (!id) fail(Object.assign(new Error('A task id is required for daemon logs.'), { exitCode: 1 }));
+      const result = await daemonLogs(config, id);
+      print(result.events || [], true);
+      return;
+    }
     const events = await store.listEvents({ taskId: positional[1] });
     print(events, true);
     return;

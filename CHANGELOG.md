@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.3 — 2026-08-27
+
+Added daemon-routed CLI task management parity.
+
+- Route `list`, `show`, `logs`, `approve`, and `reject` through the shared daemon with `--daemon`.
+- Keep task inspection, event history, and approval decisions on the daemon-owned store when the CLI data directory is empty or separate.
+- Preserve existing direct local commands and the current authentication, approval, redaction, and workspace boundaries.
+- Expand release verification to prove remote CLI task management against a running server.
+
 ## 0.4.2 — 2026-08-27
 
 Added lightweight live task activity visibility.

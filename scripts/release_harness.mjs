@@ -289,6 +289,7 @@ async function main() {
   const browserWs = await mkdtemp(join(tmpdir(), 'openbot-browser-'));
   const agentWs = await mkdtemp(join(tmpdir(), 'openbot-agent-'));
   const daemonDataDir = await mkdtemp(join(tmpdir(), 'openbot-daemon-'));
+  const clientDataDir = await mkdtemp(join(tmpdir(), 'openbot-client-'));
   const { openStore } = await import(pathToFileURL(join(root, 'lib/store.mjs')).href);
   const { createRoutineScheduler, nextRoutineRun, parseRoutineSchedule } = await import(pathToFileURL(join(root, 'lib/routines.mjs')).href);
   const { fileRead, fileWrite } = await import(pathToFileURL(join(root, 'lib/workers/file.mjs')).href);
@@ -567,6 +568,29 @@ async function main() {
       const daemonTasks = JSON.parse((await http('/api/tasks')).body).tasks || [];
       if (!daemonTasks.some((task) => task.prompt === 'Use the shared daemon client.' && task.status === 'completed')) throw new Error('daemon client task was not persisted by the server');
       pass('CLI chat can use the shared daemon and persists server-owned task state');
+      const isolatedDaemonEnv = { OPENBOT_DATA_DIR: clientDataDir, HOST: '127.0.0.1', PORT: String(port), OPENBOT_DAEMON_URL: base };
+      const daemonListCli = await runNode(['cli/openbot.mjs', 'list', '--daemon', '--json'], isolatedDaemonEnv);
+      const daemonListJson = JSON.parse(daemonListCli.output.trim());
+      if (daemonListCli.code !== 0 || !Array.isArray(daemonListJson) || !daemonListJson.some((task) => task.id === daemonCliJson.taskId)) throw new Error(`daemon CLI list: ${daemonListCli.output}`);
+      const daemonShowCli = await runNode(['cli/openbot.mjs', 'show', daemonCliJson.taskId, '--daemon', '--json'], isolatedDaemonEnv);
+      const daemonShowJson = parseCliJson(daemonShowCli.output);
+      if (daemonShowCli.code !== 0 || daemonShowJson.task?.id !== daemonCliJson.taskId || !Array.isArray(daemonShowJson.events)) throw new Error(`daemon CLI show: ${daemonShowCli.output}`);
+      const daemonLogsCli = await runNode(['cli/openbot.mjs', 'logs', daemonCliJson.taskId, '--daemon', '--json'], isolatedDaemonEnv);
+      const daemonLogsJson = JSON.parse(daemonLogsCli.output.trim());
+      if (daemonLogsCli.code !== 0 || !Array.isArray(daemonLogsJson) || !daemonLogsJson.length) throw new Error(`daemon CLI logs: ${daemonLogsCli.output}`);
+      const remoteApproval = await http('/api/tasks', { method: 'POST', body: JSON.stringify({ prompt: 'Remote approval parity', kind: 'send' }) });
+      const remoteApprovalBody = JSON.parse(remoteApproval.body);
+      if (remoteApproval.status !== 200 || !remoteApprovalBody.approval?.id) throw new Error(`remote approval setup ${remoteApproval.status} ${remoteApproval.body}`);
+      const daemonApproveCli = await runNode(['cli/openbot.mjs', 'approve', remoteApprovalBody.approval.id, '--daemon', '--json'], isolatedDaemonEnv);
+      const daemonApproveJson = parseCliJson(daemonApproveCli.output);
+      if (daemonApproveCli.code !== 0 || daemonApproveJson.approval?.status !== 'approved') throw new Error(`daemon CLI approve: ${daemonApproveCli.output}`);
+      const remoteRejection = await http('/api/tasks', { method: 'POST', body: JSON.stringify({ prompt: 'Remote rejection parity', kind: 'delete' }) });
+      const remoteRejectionBody = JSON.parse(remoteRejection.body);
+      if (remoteRejection.status !== 200 || !remoteRejectionBody.approval?.id) throw new Error(`remote rejection setup ${remoteRejection.status} ${remoteRejection.body}`);
+      const daemonRejectCli = await runNode(['cli/openbot.mjs', 'reject', remoteRejectionBody.approval.id, '--daemon', '--json'], isolatedDaemonEnv);
+      const daemonRejectJson = parseCliJson(daemonRejectCli.output);
+      if (daemonRejectCli.code !== 0 || daemonRejectJson.approval?.status !== 'rejected') throw new Error(`daemon CLI reject: ${daemonRejectCli.output}`);
+      pass('CLI task inspection, logs, and approval decisions can use the shared daemon');
       const daemonTaskId = daemonCliJson.taskId;
       const taskEvents = await http(`/api/tasks/${encodeURIComponent(daemonTaskId)}/events`);
       const taskEventsBody = JSON.parse(taskEvents.body);
@@ -900,6 +924,7 @@ async function main() {
     await rm(shellWs, { recursive: true, force: true }).catch(() => {});
     await rm(browserWs, { recursive: true, force: true }).catch(() => {});
     await rm(daemonDataDir, { recursive: true, force: true }).catch(() => {});
+    await rm(clientDataDir, { recursive: true, force: true }).catch(() => {});
   }
 
   const failed = checks.filter((check) => !check.ok);
