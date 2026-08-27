@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.22 — 2026-08-27
+
+Added a safe read-only effective-settings view to the dashboard.
+
+- Expose `/api/config` with the same redacted public configuration already available to the CLI.
+- Wire the dashboard Settings control to show provider mode, local-only state, resource profile, model protocol/endpoint, daemon binding, and agent limits.
+- Keep credentials out of the response, use DOM-safe rendering, and require environment configuration plus daemon restart for changes.
+- Preserve zero mandatory spend, old-laptop portability, approval and workspace boundaries, and brand-neutral public surfaces.
+
 ## 0.4.21 — 2026-08-27
 
 Added optional dashboard task-completion notifications.

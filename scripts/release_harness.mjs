@@ -104,6 +104,7 @@ async function main() {
   }
   const indexSource = await readFile(join(root, 'public/index.html'), 'utf8');
   const appSource = await readFile(join(root, 'public/app.js'), 'utf8');
+  const serverSource = await readFile(join(root, 'server.mjs'), 'utf8');
   const cliSource = await readFile(join(root, 'cli/openbot.mjs'), 'utf8');
   const clientSource = await readFile(join(root, 'lib/client.mjs'), 'utf8');
   if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"') || !indexSource.includes('id="recent-tasks"') || !indexSource.includes('id="memories"') || !indexSource.includes('id="memory-form"') || !indexSource.includes('id="skills"') || !indexSource.includes('id="skill-form"') || !indexSource.includes('id="routine-form"') || !indexSource.includes('id="routine-schedule"') || !indexSource.includes('id="bot"') || !indexSource.includes('id="bot-form"') || !indexSource.includes('id="bot-name"') || !indexSource.includes('id="provider"') || !indexSource.includes('id="model"')) throw new Error('dashboard is missing workspace, provider, model, bot, task history, memory, skill, or routine controls');
@@ -128,6 +129,9 @@ async function main() {
   pass('dashboard exposes explicit per-task provider selection');
   if (!appSource.includes("button.id = 'notifications'") || !appSource.includes('Notification') || !appSource.includes('notifyTaskCompletion')) throw new Error('dashboard does not expose task-completion notifications');
   pass('dashboard exposes lightweight task-completion notifications');
+  if (!appSource.includes('/api/config') || !appSource.includes('settingsButton') || !appSource.includes('showSettings')) throw new Error('dashboard does not expose effective settings');
+  if (!serverSource.includes("url.pathname === '/api/config'") || !serverSource.includes('publicConfig')) throw new Error('daemon does not expose safe public configuration');
+  pass('dashboard exposes safe effective settings');
   const publicSurfaceFiles = ['README.md', 'PRD.md', 'SECURITY.md', 'CHANGELOG.md', 'cli/openbot.mjs', 'server.mjs', 'lib/config.mjs', 'lib/provider.mjs', 'lib/daemon.mjs', 'lib/client.mjs', 'lib/agent.mjs', 'lib/store.mjs', 'public/index.html', 'public/app.js', 'public/styles.css'];
   const forbiddenPublicBrand = /\b(?:Grok|Ollama|OpenAI|Anthropic|Gemini|Claude|Cursor|Groq)\b|x\.ai/i;
   for (const file of publicSurfaceFiles) {
@@ -583,6 +587,10 @@ async function main() {
       }
       const health = await http('/api/health');
       if (health.status !== 200) throw new Error(`health status ${health.status} ${output}`); pass('health endpoint responds');
+      const configResponse = await http('/api/config');
+      const configBody = JSON.parse(configResponse.body);
+      if (configResponse.status !== 200 || configBody.localOnly !== true || configBody.remoteApiKey !== 'unset' || configBody.modelUrl !== 'http://127.0.0.1:11434') throw new Error(`config endpoint ${configResponse.status} ${configResponse.body}`);
+      pass('effective configuration endpoint is safe and read-only');
       const state = await http('/api/state');
       const parsed = JSON.parse(state.body);
       if (state.status !== 200 || !parsed.approvals || !Array.isArray(parsed.bots)) throw new Error('invalid state');

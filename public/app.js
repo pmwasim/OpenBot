@@ -38,6 +38,8 @@ const notificationButton = (() => {
   document.querySelector('.right section')?.append(button);
   return button;
 })();
+const settingsButton = document.querySelector('.side-bottom button');
+settingsButton.id = 'settings';
 
 function syncNotificationControl() {
   if (typeof Notification === 'undefined') {
@@ -67,6 +69,52 @@ function notifyTaskCompletion(taskItem) {
   const status = String(taskItem?.status || 'finished').toLowerCase();
   const summary = String(taskItem?.result || taskItem?.error || `Task ${status}.`).slice(0, 180);
   try { new Notification(`OpenBot task ${status}`, { body: summary }); } catch {}
+}
+
+async function showSettings() {
+  let dialog = document.querySelector('#settings-dialog');
+  if (!dialog) {
+    dialog = element('dialog');
+    dialog.id = 'settings-dialog';
+    const panel = element('form', 'settings-panel');
+    panel.method = 'dialog';
+    panel.append(element('h2', '', 'Effective settings'), element('p', 'hint', 'Read-only values used by this local daemon. Change configuration through the documented environment settings, then restart the daemon.'));
+    const content = element('div', 'settings-values');
+    content.id = 'settings-values';
+    panel.append(content);
+    const close = element('button', 'primary', 'Close');
+    close.type = 'submit';
+    panel.append(close);
+    dialog.append(panel);
+    document.body.append(dialog);
+  }
+  const content = dialog.querySelector('#settings-values');
+  content.replaceChildren(element('small', '', 'Loading…'));
+  if (typeof dialog.showModal === 'function') dialog.showModal();
+  else dialog.setAttribute('open', '');
+  try {
+    const response = await fetch('/api/config');
+    const config = await response.json();
+    if (!response.ok) throw new Error(config.error || 'Settings could not be loaded.');
+    const values = [
+      ['Resource profile', config.resourceProfile],
+      ['Isolation', config.isolation],
+      ['Local-only mode', config.localOnly ? 'enabled' : 'disabled'],
+      ['Local model protocol', config.modelProtocol],
+      ['Local model endpoint', config.modelUrl],
+      ['Compatible provider', config.remoteCompatible],
+      ['Provider key', config.remoteApiKey],
+      ['Daemon binding', `${config.host}:${config.port}`],
+      ['Agent limits', `${config.agentMaxTurns} turns · ${config.agentMaxActions} actions · ${config.agentContextChars} context chars`]
+    ];
+    content.replaceChildren(...values.map(([label, value]) => {
+      const row = element('div', 'settings-row');
+      row.append(element('b', '', label), element('span', '', String(value ?? 'not set')));
+      return row;
+    }));
+  } catch (error) {
+    content.replaceChildren(element('small', 'error', error.message || 'Settings could not be loaded.'));
+  }
 }
 
 function addMessage(kind, title, text) {
@@ -680,6 +728,7 @@ providerSelect.addEventListener('change', () => {
 
 notificationButton.addEventListener('click', enableNotifications);
 syncNotificationControl();
+settingsButton.addEventListener('click', showSettings);
 
 botForm.addEventListener('submit', async (event) => {
   event.preventDefault();

@@ -2,7 +2,7 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { extname, join } from 'node:path';
-import { loadConfig } from './lib/config.mjs';
+import { loadConfig, publicConfig } from './lib/config.mjs';
 import { assertBindHost, hasBearerToken } from './lib/loopback.mjs';
 import { createProviderHub, redactSecrets } from './lib/provider.mjs';
 import { openStore } from './lib/store.mjs';
@@ -308,6 +308,7 @@ const app = http.createServer(async (req, res) => {
     if (bind.overridden && !hasBearerToken(req, process.env.OPENBOT_AUTH_TOKEN)) return json(res, 401, { error: 'Authentication required.' });
     const url = new URL(req.url, `http://${req.headers.host}`);
     if (url.pathname === '/api/state' && req.method === 'GET') return json(res, 200, await store.getState());
+    if (url.pathname === '/api/config' && req.method === 'GET') return json(res, 200, publicConfig(config));
     if (url.pathname === '/api/bots' && req.method === 'GET') return json(res, 200, { bots: await store.listBots() });
     if (url.pathname === '/api/bots' && req.method === 'POST') return json(res, 200, await store.createBot(await body(req)));
     if (url.pathname.startsWith('/api/bots/') && url.pathname.endsWith('/chat') && req.method === 'POST') {
