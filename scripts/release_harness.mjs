@@ -455,7 +455,8 @@ async function main() {
           JSON.stringify({ reply: 'The skill is loaded.' }),
           JSON.stringify({ reply: 'The routine completed.' }),
           JSON.stringify({ reply: 'The interrupted task is complete.' }),
-          JSON.stringify({ reply: 'The daemon client completed the task.' })
+          JSON.stringify({ reply: 'The daemon client completed the task.' }),
+          JSON.stringify({ reply: 'The daemon resumed task is complete.' })
         ])
       },
       stdio: ['ignore', 'pipe', 'pipe']
@@ -590,6 +591,20 @@ async function main() {
       const daemonRejectCli = await runNode(['cli/openbot.mjs', 'reject', remoteRejectionBody.approval.id, '--daemon', '--json'], isolatedDaemonEnv);
       const daemonRejectJson = parseCliJson(daemonRejectCli.output);
       if (daemonRejectCli.code !== 0 || daemonRejectJson.approval?.status !== 'rejected') throw new Error(`daemon CLI reject: ${daemonRejectCli.output}`);
+      const remoteControl = await http('/api/tasks', { method: 'POST', body: JSON.stringify({ prompt: 'Remote control parity', kind: 'plan', workspace: agentWs }) });
+      const remoteControlBody = JSON.parse(remoteControl.body);
+      if (remoteControl.status !== 200 || !remoteControlBody.task?.id) throw new Error(`remote control setup ${remoteControl.status} ${remoteControl.body}`);
+      const daemonPauseCli = await runNode(['cli/openbot.mjs', 'pause', remoteControlBody.task.id, '--daemon', '--json'], isolatedDaemonEnv);
+      const daemonPauseJson = parseCliJson(daemonPauseCli.output);
+      if (daemonPauseCli.code !== 0 || daemonPauseJson.task?.status !== 'paused') throw new Error(`daemon CLI pause: ${daemonPauseCli.output}`);
+      const daemonResumeCli = await runNode(['cli/openbot.mjs', 'resume', remoteControlBody.task.id, '--daemon', '--json'], isolatedDaemonEnv, { timeoutMs: 20000 });
+      const daemonResumeJson = parseCliJson(daemonResumeCli.output);
+      if (daemonResumeCli.code !== 0 || daemonResumeJson.status !== 'completed' || daemonResumeJson.taskId !== remoteControlBody.task.id) throw new Error(`daemon CLI resume: ${daemonResumeCli.output}`);
+      const remoteCancel = await http('/api/tasks', { method: 'POST', body: JSON.stringify({ prompt: 'Remote cancel parity', kind: 'plan', workspace: agentWs }) });
+      const remoteCancelBody = JSON.parse(remoteCancel.body);
+      const daemonCancelCli = await runNode(['cli/openbot.mjs', 'cancel', remoteCancelBody.task.id, '--daemon', '--json'], isolatedDaemonEnv);
+      const daemonCancelJson = parseCliJson(daemonCancelCli.output);
+      if (daemonCancelCli.code !== 0 || daemonCancelJson.task?.status !== 'cancelled') throw new Error(`daemon CLI cancel: ${daemonCancelCli.output}`);
       pass('CLI task inspection, logs, and approval decisions can use the shared daemon');
       const daemonTaskId = daemonCliJson.taskId;
       const taskEvents = await http(`/api/tasks/${encodeURIComponent(daemonTaskId)}/events`);

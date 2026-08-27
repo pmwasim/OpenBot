@@ -10,7 +10,7 @@ import { createEngine } from '../lib/engine.mjs';
 import { createAgentController } from '../lib/agent.mjs';
 import { createRoutineScheduler } from '../lib/routines.mjs';
 import { daemonStatus, startDaemon, stopDaemon } from '../lib/daemon.mjs';
-import { daemonChat, daemonDecideApproval, daemonList, daemonLogs, daemonShow, daemonState } from '../lib/client.mjs';
+import { daemonChat, daemonControlTask, daemonDecideApproval, daemonList, daemonLogs, daemonResume, daemonShow, daemonState } from '../lib/client.mjs';
 
 const USAGE = `OpenBot CLI (local agent)
 
@@ -577,6 +577,16 @@ async function main() {
   if (command === 'resume') {
     const id = positional[1];
     if (!id) fail(Object.assign(new Error('Task id is required.'), { exitCode: 1 }));
+    if (flags.daemon) {
+      const remote = await daemonShow(config, id);
+      const remoteTask = remote.task;
+      if (!['pending', 'running', 'waiting_approval', 'paused'].includes(remoteTask.status)) fail(Object.assign(new Error(`Cannot resume a task in status "${remoteTask.status}".`), { exitCode: 1 }));
+      const result = await daemonResume(config, id, { model: flags.model || undefined, approvalId: flags.approvalId || undefined, skill: flags.skill || remoteTask.skill || undefined });
+      if (asJson) print(result, true);
+      else print(result.reply || `${result.status}${result.approvals?.length ? `: approval ${result.approvals[0].id}` : ''}`);
+      if (!['completed', 'waiting_approval'].includes(result.status)) process.exit(result.status === 'denied' ? 2 : 1);
+      return;
+    }
     const task = await store.getTask(id);
     if (!task) fail(Object.assign(new Error('Task not found'), { exitCode: 1 }));
     if (task.status === 'paused') await store.setTaskStatus(id, 'resume');
@@ -590,6 +600,10 @@ async function main() {
   if (command === 'pause' || command === 'cancel') {
     const id = positional[1];
     if (!id) fail(Object.assign(new Error('Task id is required.'), { exitCode: 1 }));
+    if (flags.daemon) {
+      print(await daemonControlTask(config, id, command), true);
+      return;
+    }
     const task = await store.setTaskStatus(id, command);
     print({ task }, true);
     return;

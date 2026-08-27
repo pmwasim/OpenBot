@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.4 — 2026-08-27
+
+Added daemon-routed CLI task control.
+
+- Route `pause`, `resume`, and `cancel` through the shared daemon with `--daemon`.
+- Resume paused tasks through the server-owned bounded agent loop without changing task identity.
+- Preserve direct local commands and existing status-transition, approval, workspace, and audit boundaries.
+- Expand release verification to cover remote pause, resume, and cancel against a live server.
+
 ## 0.4.3 — 2026-08-27
 
 Added daemon-routed CLI task management parity.

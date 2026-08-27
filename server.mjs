@@ -268,11 +268,18 @@ const app = http.createServer(async (req, res) => {
       const taskId = url.pathname.slice('/api/tasks/'.length, -'/resume'.length);
       const task = await store.getTask(taskId);
       if (!task) return json(res, 404, { error: 'Task not found' });
-      if (!['pending', 'running', 'waiting_approval'].includes(task.status)) return json(res, 409, { error: `Task is not resumable from status "${task.status}".` });
+      if (task.status === 'paused') await store.setTaskStatus(taskId, 'resume');
+      if (!['pending', 'running', 'waiting_approval'].includes(task.status) && task.status !== 'paused') return json(res, 409, { error: `Task is not resumable from status "${task.status}".` });
       const payload = await body(req);
       const selected = await resolveAgentModel(payload.model);
       const result = await runAgentTask({ taskId, prompt: task.prompt, workspace: task.workspace, model: selected, maxTurns: payload.maxTurns, approvalId: payload.approvalId, skill: payload.skill || task.skill, botId: task.botId });
       return json(res, agentHttpStatus(result), { model: selected, ...result });
+    }
+    if (url.pathname.startsWith('/api/tasks/') && url.pathname.endsWith('/control') && req.method === 'POST') {
+      const taskId = url.pathname.slice('/api/tasks/'.length, -'/control'.length);
+      const { action } = await body(req);
+      if (!['pause', 'cancel'].includes(action)) return json(res, 400, { error: 'Task control action must be pause or cancel.' });
+      return json(res, 200, { task: await store.setTaskStatus(taskId, action) });
     }
     if (url.pathname === '/api/chat' && req.method === 'POST') {
       const { message, model, workspace, taskId, maxTurns, skill, botId } = await body(req);
