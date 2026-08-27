@@ -322,6 +322,21 @@ const app = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
     if (url.pathname === '/api/state' && req.method === 'GET') return json(res, 200, await store.getState());
     if (url.pathname === '/api/config' && req.method === 'GET') return json(res, 200, publicConfig(config));
+    if (url.pathname === '/api/connectors' && req.method === 'GET') return json(res, 200, { connectors: await store.listConnectors() });
+    if (url.pathname === '/api/connectors' && req.method === 'POST') return json(res, 200, await store.createConnector(await body(req)));
+    if (url.pathname.startsWith('/api/connectors/') && req.method === 'GET') {
+      const id = decodeURIComponent(url.pathname.slice('/api/connectors/'.length));
+      const connector = await store.getConnector(id);
+      return connector ? json(res, 200, { connector }) : json(res, 404, { error: 'Connector not found.' });
+    }
+    if (url.pathname.startsWith('/api/connectors/') && req.method === 'PATCH') {
+      const id = decodeURIComponent(url.pathname.slice('/api/connectors/'.length));
+      return json(res, 200, await store.updateConnector(id, await body(req)));
+    }
+    if (url.pathname.startsWith('/api/connectors/') && req.method === 'DELETE') {
+      const id = decodeURIComponent(url.pathname.slice('/api/connectors/'.length));
+      return json(res, 200, await store.deleteConnector(id));
+    }
     if (url.pathname === '/api/bots' && req.method === 'GET') return json(res, 200, { bots: await store.listBots() });
     if (url.pathname === '/api/bots' && req.method === 'POST') return json(res, 200, await store.createBot(await body(req)));
     if (url.pathname.startsWith('/api/bots/') && url.pathname.endsWith('/chat') && req.method === 'POST') {

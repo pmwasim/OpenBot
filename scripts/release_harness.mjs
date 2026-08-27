@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createEngine } from '../lib/engine.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const port = 4199;
@@ -90,6 +91,7 @@ async function main() {
     'lib/client.mjs',
     'lib/task-result.mjs',
     'lib/task-artifacts.mjs',
+    'lib/connectors.mjs',
     'lib/loopback.mjs',
     'lib/engine.mjs',
     'lib/runtime.mjs',
@@ -112,8 +114,10 @@ async function main() {
   const configSource = await readFile(join(root, 'lib/config.mjs'), 'utf8');
   const policySource = await readFile(join(root, 'lib/policy.mjs'), 'utf8');
   const browserSource = await readFile(join(root, 'lib/workers/browser.mjs'), 'utf8');
-  if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"') || !indexSource.includes('id="recent-tasks"') || !indexSource.includes('id="memories"') || !indexSource.includes('id="memory-form"') || !indexSource.includes('id="skills"') || !indexSource.includes('id="skill-form"') || !indexSource.includes('id="routine-form"') || !indexSource.includes('id="routine-schedule"') || !indexSource.includes('id="bot"') || !indexSource.includes('id="bot-form"') || !indexSource.includes('id="bot-name"') || !indexSource.includes('id="provider"') || !indexSource.includes('id="model"')) throw new Error('dashboard is missing workspace, provider, model, bot, task history, memory, skill, or routine controls');
-  if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/export') || !appSource.includes('/result') || !appSource.includes('/artifacts') || !appSource.includes('Open structured result') || !appSource.includes('Artifacts') || !appSource.includes('Download audit') || !appSource.includes('/resume') || !appSource.includes('resumeTask') || !appSource.includes('Resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/tasks/') || !appSource.includes('after=') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('/api/routines') || !appSource.includes('/api/bots') || !appSource.includes('/messages') || !appSource.includes('loadBotConversation') || !appSource.includes('Run now') || !appSource.includes('botId') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, recovery, task history, live activity, memory, skills, routines, bots, persistent conversations, and result/artifact delivery');
+  const engineSource = await readFile(join(root, 'lib/engine.mjs'), 'utf8');
+  const connectorSource = await readFile(join(root, 'lib/connectors.mjs'), 'utf8');
+  if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"') || !indexSource.includes('id="recent-tasks"') || !indexSource.includes('id="memories"') || !indexSource.includes('id="memory-form"') || !indexSource.includes('id="skills"') || !indexSource.includes('id="skill-form"') || !indexSource.includes('id="routine-form"') || !indexSource.includes('id="routine-schedule"') || !indexSource.includes('id="bot"') || !indexSource.includes('id="bot-form"') || !indexSource.includes('id="bot-name"') || !indexSource.includes('id="provider"') || !indexSource.includes('id="model"') || !indexSource.includes('id="connector-form"') || !indexSource.includes('id="connectors"')) throw new Error('dashboard is missing workspace, provider, model, bot, connector, task history, memory, skill, or routine controls');
+  if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/export') || !appSource.includes('/result') || !appSource.includes('/artifacts') || !appSource.includes('Open structured result') || !appSource.includes('Artifacts') || !appSource.includes('Download audit') || !appSource.includes('/resume') || !appSource.includes('resumeTask') || !appSource.includes('Resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/tasks/') || !appSource.includes('after=') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('/api/routines') || !appSource.includes('/api/bots') || !appSource.includes('/messages') || !appSource.includes('loadBotConversation') || !appSource.includes('/api/connectors') || !appSource.includes('loadConnectors') || !appSource.includes('connector.fetch') || !appSource.includes('Run now') || !appSource.includes('botId') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, recovery, task history, live activity, memory, skills, routines, bots, connectors, persistent conversations, and result/artifact delivery');
   if (appSource.includes('e.innerHTML=`')) throw new Error('dashboard renders state with unsafe innerHTML');
   pass('dashboard exposes workspace, action cards, structured results, audit links, and downloadable task artifacts safely');
   if (!appSource.includes('editMemory') || !appSource.includes('editSkill') || !appSource.includes('editBot') || !appSource.includes("method: 'PATCH'") || !appSource.includes('Cancel') || !appSource.includes('Edit')) throw new Error('dashboard does not expose safe editing for bots, skills, and memory');
@@ -152,6 +156,8 @@ async function main() {
   pass('server exposes bounded named bot conversation history');
   if (!configSource.includes('OPENBOT_BROWSER_ALLOW_HOSTS') || !policySource.includes('allowHosts') || !browserSource.includes('allowHosts') || !serverSource.includes('browserAllowHosts')) throw new Error('browser host allowlist is not explicit across configuration, policy, worker, and daemon');
   pass('browser access uses an explicit configurable host allowlist');
+  if (!connectorSource.includes('CONNECTOR_LIMITS') || !connectorSource.includes('allowedPaths') || !connectorSource.includes('baseUrl') || !serverSource.includes('/api/connectors') || !engineSource.includes('connectorFetch') || !policySource.includes('connector.fetch') || !cliSource.includes('connector')) throw new Error('local connector capability is incomplete across registry, policy, worker, daemon, and CLI');
+  pass('local connectors use bounded endpoint and path permissions across clients');
   const { taskResultView, TASK_RESULT_LIMITS } = await import(pathToFileURL(join(root, 'lib/task-result.mjs')).href);
   const { taskArtifactInventory, redactArtifactContent, TASK_ARTIFACT_LIMITS } = await import(pathToFileURL(join(root, 'lib/task-artifacts.mjs')).href);
   const { classifyBrowserUrl } = await import(pathToFileURL(join(root, 'lib/policy.mjs')).href);
@@ -160,6 +166,13 @@ async function main() {
   const configuredBrowserHosts = loadBrowserConfig({ OPENBOT_BROWSER_ALLOW_HOSTS: 'Example.com, docs.example.com, https://invalid.example', OPENBOT_MODEL_URL: 'http://127.0.0.1:11434' }).browserAllowHosts;
   if (JSON.stringify(configuredBrowserHosts) !== JSON.stringify(['example.com', 'docs.example.com'])) throw new Error(`browser configuration ${JSON.stringify(configuredBrowserHosts)}`);
   pass('browser host allowlist keeps loopback defaults and exact opt-in hosts');
+  const { validateConnectorDefinition } = await import(pathToFileURL(join(root, 'lib/connectors.mjs')).href);
+  const connectorDefinition = validateConnectorDefinition({ name: 'Local health', description: 'Read health', baseUrl: 'http://127.0.0.1:4199/', allowedPaths: ['/api/health'] });
+  if (connectorDefinition.name !== 'Local health' || connectorDefinition.allowedPaths[0] !== '/api/health') throw new Error(`connector definition ${JSON.stringify(connectorDefinition)}`);
+  let connectorRejected = false;
+  try { validateConnectorDefinition({ name: 'Bad', baseUrl: 'https://user:pass@example.com/', allowedPaths: ['/'] }); } catch { connectorRejected = true; }
+  if (!connectorRejected) throw new Error('connector credentials were accepted');
+  pass('connector definitions reject credentials and preserve explicit path permissions');
   const bounded = taskResultView(
     { id: 'task-bounded', status: 'completed', result: 'token=do-not-leak '.repeat(2000), updatedAt: 'now' },
     [{ seq: 1, type: 'agent.action.executed', payload: { action: { tool: 'file.read', status: 'executed', result: 'secret '.repeat(3000) } } }]
@@ -961,6 +974,31 @@ async function main() {
       if (oversized.status !== 413) throw new Error(`status ${oversized.status}`); pass('oversized request is rejected');
       const traversal = await http('/../server.mjs');
       if (traversal.status !== 404) throw new Error(`status ${traversal.status}`); pass('path traversal is rejected');
+      const connectorCreate = await http('/api/connectors', { method: 'POST', body: JSON.stringify({ name: 'Local health', description: 'Read local daemon health.', baseUrl: `${base}/`, allowedPaths: ['/api/health'] }) });
+      const connectorCreateBody = JSON.parse(connectorCreate.body);
+      const connectorList = await http('/api/connectors');
+      if (connectorCreate.status !== 200 || !connectorCreateBody.connector?.id || connectorList.status !== 200 || !JSON.parse(connectorList.body).connectors?.some((item) => item.id === connectorCreateBody.connector.id)) throw new Error(`connector API ${connectorCreate.status} ${connectorCreate.body} ${connectorList.body}`);
+      const connectorStore = await openStore({ dataDir });
+      const connectorEngine = createEngine({ store: connectorStore, actor: 'harness', browserAllowHosts: ['127.0.0.1', 'localhost'] });
+      const connectorProposal = await connectorEngine.act({ workspace: fileWs, tool: 'connector.fetch', args: { connectorId: connectorCreateBody.connector.id, path: '/api/health' } });
+      if (connectorProposal.status !== 'needs_approval' || !connectorProposal.approval?.id) throw new Error(`connector proposal ${connectorProposal.status}`);
+      await connectorStore.updateConnector(connectorCreateBody.connector.id, { baseUrl: `${base}/changed/` });
+      await first.decideApproval(connectorProposal.approval.id, 'approved');
+      const connectorRetargeted = await connectorEngine.act({ workspace: fileWs, tool: 'connector.fetch', args: { connectorId: connectorCreateBody.connector.id, path: '/api/health' }, approvalId: connectorProposal.approval.id, taskId: connectorProposal.taskId });
+      if (connectorRetargeted.status !== 'denied') throw new Error(`connector approval replay ${connectorRetargeted.status}`);
+      await connectorStore.updateConnector(connectorCreateBody.connector.id, { baseUrl: `${base}/` });
+      const connectorRead = await connectorEngine.act({ workspace: fileWs, tool: 'connector.fetch', args: { connectorId: connectorCreateBody.connector.id, path: '/api/health' }, approvalId: connectorProposal.approval.id, taskId: connectorProposal.taskId });
+      if (!connectorRead.ok || connectorRead.status !== 'executed' || !String(connectorRead.result?.body || '').includes('"online"')) throw new Error(`connector read ${connectorRead.status} ${JSON.stringify(connectorRead.result)}`);
+      const connectorEscape = await connectorEngine.act({ workspace: fileWs, tool: 'connector.fetch', args: { connectorId: connectorCreateBody.connector.id, path: '/api/tasks' } });
+      if (connectorEscape.status !== 'denied') throw new Error(`connector path escape ${connectorEscape.status}`);
+      const localConnectorList = await runNode(['cli/openbot.mjs', 'connector', 'list', '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
+      const localConnectorListJson = parseCliJson(localConnectorList.output);
+      if (localConnectorList.code !== 0 || !localConnectorListJson.connectors?.some((item) => item.id === connectorCreateBody.connector.id)) throw new Error(`local connector CLI ${localConnectorList.output}`);
+      const daemonConnectorList = await runNode(['cli/openbot.mjs', 'connector', 'list', '--daemon', '--json'], isolatedDaemonEnv);
+      const daemonConnectorListJson = parseCliJson(daemonConnectorList.output);
+      if (daemonConnectorList.code !== 0 || !daemonConnectorListJson.connectors?.some((item) => item.name === 'Local health')) throw new Error(`daemon connector CLI ${daemonConnectorList.output}`);
+      pass('CLI reads registered connectors locally and through the shared daemon');
+      pass('connector calls are approval-gated, bounded to registered paths, and usable through the engine');
     } finally {
       child.kill('SIGTERM');
       await new Promise((resolve) => child.once('exit', resolve));
@@ -1000,14 +1038,13 @@ async function main() {
     }
     pass('non-loopback requests require and accept the configured bearer token');
 
-    const { createEngine } = await import(pathToFileURL(join(root, 'lib/engine.mjs')).href);
     const engine = createEngine({ store: first, actor: 'harness' });
     const defaultExternalBrowser = await engine.act({ workspace: fileWs, tool: 'browser.fetch', args: { url: 'https://example.com', path: 'external.md' } });
     if (defaultExternalBrowser.status !== 'denied') throw new Error(`default external browser access ${defaultExternalBrowser.status}`);
     const configuredBrowserEngine = createEngine({ store: first, actor: 'harness', browserAllowHosts: ['example.com'] });
-    const configuredExternalBrowser = await configuredBrowserEngine.act({ workspace: fileWs, tool: 'browser.fetch', args: { url: 'https://example.com', path: 'external.md' } });
-    if (configuredExternalBrowser.status !== 'needs_approval' || !configuredExternalBrowser.approval?.id) throw new Error(`configured external browser access ${configuredExternalBrowser.status}`);
-    pass('external browser access is opt-in and remains approval-gated');
+      const configuredExternalBrowser = await configuredBrowserEngine.act({ workspace: fileWs, tool: 'browser.fetch', args: { url: 'https://example.com', path: 'external.md' } });
+      if (configuredExternalBrowser.status !== 'needs_approval' || !configuredExternalBrowser.approval?.id) throw new Error(`configured external browser access ${configuredExternalBrowser.status}`);
+      pass('external browser access is opt-in and remains approval-gated');
     const scopedTask = await first.createTask({ prompt: 'workspace binding', kind: 'plan', workspace: fileWs });
     let workspaceMismatchRejected = false;
     try { await engine.act({ taskId: scopedTask.task.id, workspace: shellWs, tool: 'file.read', args: { path: 'notes.txt' } }); } catch (error) { workspaceMismatchRejected = error.statusCode === 409; }

@@ -6,6 +6,7 @@ const memoryForm = document.querySelector('#memory-form');
 const skillForm = document.querySelector('#skill-form');
 const routineForm = document.querySelector('#routine-form');
 const botForm = document.querySelector('#bot-form');
+const connectorForm = document.querySelector('#connector-form');
 const skillSelect = document.querySelector('#skill');
 const botSelect = document.querySelector('#bot');
 const providerSelect = document.querySelector('#provider');
@@ -526,6 +527,52 @@ function renderRoutines(routines) {
   }
 }
 
+function renderConnectors(connectors) {
+  const container = document.querySelector('#connectors');
+  container.replaceChildren();
+  for (const connector of connectors) {
+    const card = element('div', 'health memory-card');
+    const details = element('div');
+    details.append(
+      element('b', '', connector.name),
+      element('small', '', `${connector.baseUrl} · ${connector.allowedPaths.join(', ')} · ${connector.enabled ? 'enabled' : 'paused'} · tool: connector.fetch`)
+    );
+    const toggle = element('button', 'text', connector.enabled ? 'Pause' : 'Enable');
+    toggle.addEventListener('click', async () => {
+      toggle.disabled = true;
+      try {
+        await patchRecord(`/api/connectors/${encodeURIComponent(connector.id)}`, { enabled: !connector.enabled });
+        await loadConnectors();
+      } catch (error) {
+        addMessage('error', 'OpenBot', error.message || 'Connector could not be updated.');
+        toggle.disabled = false;
+      }
+    });
+    const remove = element('button', 'text', 'Delete');
+    remove.addEventListener('click', async () => {
+      remove.disabled = true;
+      try {
+        const response = await fetch(`/api/connectors/${encodeURIComponent(connector.id)}`, { method: 'DELETE' });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Connector could not be deleted.');
+        await loadConnectors();
+      } catch (error) {
+        addMessage('error', 'OpenBot', error.message || 'Connector could not be deleted.');
+        remove.disabled = false;
+      }
+    });
+    card.append(details, toggle, remove);
+    container.append(card);
+  }
+}
+
+async function loadConnectors() {
+  const response = await fetch('/api/connectors');
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'Connectors could not be loaded.');
+  renderConnectors(Array.isArray(data.connectors) ? data.connectors : []);
+}
+
 async function loadSkills() {
   const response = await fetch('/api/skills');
   const data = await response.json();
@@ -553,7 +600,7 @@ async function load() {
   updateModelLabel();
   dot.style.background = health.online ? 'var(--green)' : '#e78290';
   renderState(state, taskResponse);
-  await Promise.all([loadMemories(workspace.value.trim()), loadSkills()]);
+  await Promise.all([loadMemories(workspace.value.trim()), loadSkills(), loadConnectors()]);
 }
 
 function renderState(state, taskResponse = {}) {
@@ -831,6 +878,33 @@ routineForm.addEventListener('submit', async (event) => {
   document.querySelector('#routine-schedule').value = '';
   document.querySelector('#routine-prompt').value = '';
   await load();
+});
+
+connectorForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const name = document.querySelector('#connector-name').value.trim();
+  const description = document.querySelector('#connector-description').value.trim();
+  const baseUrl = document.querySelector('#connector-base-url').value.trim();
+  const allowedPaths = document.querySelector('#connector-paths').value.trim();
+  if (!name || !baseUrl || !allowedPaths) {
+    addMessage('error', 'OpenBot', 'Enter a connector name, base URL, and at least one allowed path.');
+    return;
+  }
+  const response = await fetch('/api/connectors', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name, description, baseUrl, allowedPaths })
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    addMessage('error', 'OpenBot', data.error || 'Connector could not be saved.');
+    return;
+  }
+  document.querySelector('#connector-name').value = '';
+  document.querySelector('#connector-description').value = '';
+  document.querySelector('#connector-base-url').value = '';
+  document.querySelector('#connector-paths').value = '';
+  await loadConnectors();
 });
 
 workspace.addEventListener('change', () => loadMemories(workspace.value.trim()).catch(() => {}));

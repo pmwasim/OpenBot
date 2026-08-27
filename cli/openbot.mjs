@@ -15,8 +15,8 @@ import { daemonStatus, startDaemon, stopDaemon } from '../lib/daemon.mjs';
 import { launchDesktop } from '../lib/desktop.mjs';
 import { installService, serviceInfo, uninstallService } from '../lib/service.mjs';
 import {
-  daemonBot, daemonBotMessages, daemonBots, daemonChat, daemonControlTask, daemonCreateBot, daemonCreateMemory, daemonCreateRoutine, daemonCreateSkill, daemonCreateTask, daemonRunTask, daemonTaskArtifacts, daemonTaskEvents, daemonTaskResult, daemonUpdateBot,
-  daemonDecideApproval, daemonDeleteBot, daemonDeleteMemory, daemonDeleteSkill, daemonList, daemonLogs, daemonMemories, daemonResume, daemonUpdateMemory,
+  daemonBot, daemonBotMessages, daemonBots, daemonChat, daemonConnectors, daemonControlTask, daemonCreateBot, daemonCreateConnector, daemonCreateMemory, daemonCreateRoutine, daemonCreateSkill, daemonCreateTask, daemonRunTask, daemonTaskArtifacts, daemonTaskEvents, daemonTaskResult, daemonUpdateBot, daemonUpdateConnector,
+  daemonDecideApproval, daemonDeleteBot, daemonDeleteConnector, daemonDeleteMemory, daemonDeleteSkill, daemonList, daemonLogs, daemonMemories, daemonResume, daemonUpdateMemory,
   daemonRoutine, daemonRoutines, daemonRunRoutine, daemonShow, daemonSkill, daemonSkills, daemonState, daemonUpdateRoutine, daemonUpdateSkill
 } from '../lib/client.mjs';
 
@@ -59,6 +59,10 @@ Commands:
   bot chat <id>      Chat with a named local bot
   bot history <id>   Show a named bot's bounded conversation history
   bot delete <id>    Delete a named local bot
+  connector list     List operator-owned read-only connectors
+  connector add      Register a bounded connector endpoint
+  connector update <id> Update a connector definition
+  connector delete <id> Delete a connector
   skill list         List reusable local skills
   skill add          Save an operator-approved local skill
   skill update <id>  Update a reusable local skill
@@ -94,6 +98,11 @@ Options:
   --content <text>   File contents for a proposed write
   --command <cmd>    Shell command for a proposed exec
   --url <url>        URL for a proposed browser visit
+  --base-url <url>   Base URL for a connector
+  --allowed-paths <p> Comma-separated connector path prefixes
+  --connector <id>   Connector id for connector.fetch
+  --enabled          Enable a connector when updating it
+  --disabled         Pause a connector when updating it
   --output <path>    Markdown output path for browser research
   --action <id>      Action id (approve --action)
   --title <text>     Approval title
@@ -109,6 +118,9 @@ const VALUE_FLAGS = {
   '--content': 'content',
   '--command': 'command',
   '--url': 'url',
+  '--base-url': 'baseUrl',
+  '--allowed-paths': 'allowedPaths',
+  '--connector': 'connectorId',
   '--output': 'outputPath',
   '--tool': 'tool',
   '--contents': 'contents',
@@ -138,6 +150,8 @@ function parseArgs(argv) {
     else if (arg === '--dry-run') flags.dryRun = true;
     else if (arg === '--daemon') flags.daemon = true;
     else if (arg === '--follow') flags.follow = true;
+    else if (arg === '--enabled') flags.enabled = true;
+    else if (arg === '--disabled') flags.enabled = false;
     else if (arg === '--help' || arg === '-h') flags.help = true;
     else if (arg.startsWith('--') && arg.includes('=')) {
       const eq = arg.indexOf('=');
@@ -245,6 +259,7 @@ async function runWorker(store, flags, config) {
   if (contents != null) args.contents = contents;
   if (flags.command) args.command = flags.command;
   if (flags.url) args.url = flags.url;
+  if (flags.connectorId) args.connectorId = flags.connectorId;
   const result = await engine.act({
     tool,
     args,
@@ -598,6 +613,37 @@ async function main() {
       return;
     }
     fail(Object.assign(new Error('Use skill list, skill add, skill update, or skill delete.'), { exitCode: 1 }));
+  }
+
+  if (command === 'connector') {
+    const subcommand = positional[1];
+    if (subcommand === 'list') {
+      const connectors = flags.daemon ? (await daemonConnectors(config)).connectors || [] : await store.listConnectors();
+      print({ connectors }, true);
+      return;
+    }
+    if (subcommand === 'add') {
+      const payload = { name: flags.name || positional[2], description: flags.description, baseUrl: flags.baseUrl, allowedPaths: flags.allowedPaths };
+      print(flags.daemon ? await daemonCreateConnector(config, payload) : await store.createConnector(payload), true);
+      return;
+    }
+    if (subcommand === 'update') {
+      const id = positional[2];
+      if (!id) fail(Object.assign(new Error('Connector id is required.'), { exitCode: 1 }));
+      const patch = {};
+      for (const field of ['name', 'description', 'baseUrl', 'allowedPaths']) if (flags[field] !== undefined) patch[field] = flags[field];
+      if (flags.enabled !== undefined) patch.enabled = flags.enabled;
+      if (!Object.keys(patch).length) fail(Object.assign(new Error('Provide connector fields to update.'), { exitCode: 1 }));
+      print(flags.daemon ? await daemonUpdateConnector(config, id, patch) : await store.updateConnector(id, patch), true);
+      return;
+    }
+    if (subcommand === 'delete') {
+      const id = positional[2];
+      if (!id) fail(Object.assign(new Error('Connector id is required.'), { exitCode: 1 }));
+      print(flags.daemon ? await daemonDeleteConnector(config, id) : await store.deleteConnector(id), true);
+      return;
+    }
+    fail(Object.assign(new Error('Use connector list, connector add, connector update, or connector delete.'), { exitCode: 1 }));
   }
 
   if (command === 'routine') {

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.30 — 2026-08-27
+
+Added safe operator-owned local connectors for real bot extensibility.
+
+- Register bounded read-only HTTP connectors with exact host and path permissions through the API, dashboard, local CLI, or shared daemon CLI.
+- Add the `connector.fetch` agent capability with approval before every request, disabled redirects, GET-only behavior, 64 KiB response limits, 10-second timeouts, and connector-definition-bound action approvals.
+- Preserve loopback defaults, workspace containment, redaction, zero mandatory spend, old-laptop portability, and brand-neutral public surfaces.
+
 ## 0.4.29 — 2026-08-27
 
 Clarified the browser network security boundary for the v0.4.28 research-host capability.
