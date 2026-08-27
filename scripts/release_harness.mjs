@@ -101,12 +101,17 @@ async function main() {
   if (decide({ tool: 'file.write', args: { path: '/tmp/escape.txt', contents: 'x' }, workspace: '/tmp/ws' }) !== 'deny') {
     throw new Error('policy(file.write escape)');
   }
+  if (decide({ tool: 'browser.fetch', args: { url: 'http://127.0.0.1:1234/' }, workspace: '/tmp/ws' }) !== 'require_approval') {
+    throw new Error('policy(browser.fetch approval)');
+  }
   if (decide({ tool: 'shell.exec', args: { command: 'uname' }, workspace: '/tmp/ws' }) !== 'allow') {
     throw new Error('policy(shell uname)');
   }
   if (decide({ tool: 'shell.exec', args: { command: 'rm -rf /' }, workspace: '/tmp/ws' }) !== 'deny') {
     throw new Error('policy(shell destructive)');
   }
+  if (decide({ tool: 'shell.exec', args: { command: 'node -e test' }, workspace: '/tmp/ws' }) !== 'deny') throw new Error('policy(node execution)');
+  if (decide({ tool: 'shell.exec', args: { command: 'ls /etc' }, workspace: '/tmp/ws' }) !== 'deny') throw new Error('policy(ls escape)');
   pass('policy requires approval for send/publish/purchase/delete/production-change');
 
   const { assertBindHost, isLoopbackHost, hasBearerToken } = await import(pathToFileURL(join(root, 'lib/loopback.mjs')).href);
@@ -126,6 +131,10 @@ async function main() {
   const redacted = redactSecrets({ apiKey: 'sk-secret-value', model: 'local' });
   if (redacted.apiKey !== '[redacted]' || redacted.model !== 'local') throw new Error('redact');
   if (JSON.stringify(hub.describe()).includes('sk-secret-value')) throw new Error('secret leaked');
+  let remoteOllamaRejected = false;
+  try { createProviderHub({ OPENBOT_OLLAMA_URL: 'http://example.com:11434' }); } catch { remoteOllamaRejected = true; }
+  if (!remoteOllamaRejected) throw new Error('remote Ollama should require opt-in');
+  if (!createProviderHub({ OPENBOT_LOCAL_ONLY: '0', OPENBOT_OLLAMA_URL: 'http://example.com:11434' }).ollama.baseUrl.includes('example.com')) throw new Error('explicit remote Ollama opt-in');
   pass('provider hub defaults to local Ollama and redacts secrets');
 
   const { loadConfig, publicConfig } = await import(pathToFileURL(join(root, 'lib/config.mjs')).href);
@@ -447,6 +456,11 @@ async function main() {
 
     const { createEngine } = await import(pathToFileURL(join(root, 'lib/engine.mjs')).href);
     const engine = createEngine({ store: first, actor: 'harness' });
+    const scopedTask = await first.createTask({ prompt: 'workspace binding', kind: 'plan', workspace: fileWs });
+    let workspaceMismatchRejected = false;
+    try { await engine.act({ taskId: scopedTask.task.id, workspace: shellWs, tool: 'file.read', args: { path: 'notes.txt' } }); } catch (error) { workspaceMismatchRejected = error.statusCode === 409; }
+    if (!workspaceMismatchRejected) throw new Error('task workspace mismatch was accepted');
+    pass('existing task actions are bound to their canonical workspace');
 
     const fixtureNotes = await readFile(join(root, 'fixtures/file/notes.txt'), 'utf8');
     await writeFile(join(fileWs, 'notes.txt'), fixtureNotes.endsWith('\n') ? fixtureNotes : `${fixtureNotes}\n`);
@@ -463,6 +477,10 @@ async function main() {
     }
     const unapproved = await readFile(join(fileWs, 'notes.txt'), 'utf8');
     if (unapproved.trim() !== 'hello world') throw new Error('file wrote before approval');
+    const otherTask = await first.createTask({ prompt: 'wrong approval task', kind: 'plan', workspace: fileWs });
+    const wrongTaskApproval = await engine.act({ workspace: fileWs, tool: 'file.write', args: { path: 'notes.txt', contents: 'hello openbot\n' }, approvalId: proposed.approval.id, taskId: otherTask.task.id });
+    if (wrongTaskApproval.status !== 'denied') throw new Error(`approval crossed task boundary: ${wrongTaskApproval.status}`);
+    pass('approval consumption is bound to the originating task');
     await first.decideApproval(proposed.approval.id, 'approved');
     const written = await engine.act({
       workspace: fileWs,
@@ -601,7 +619,17 @@ async function main() {
         tool: 'browser.fetch',
         args: { url: fixtureUrl, path: 'research.md' }
       });
-      if (!fetched.ok) throw new Error(`browser fetch failed: ${fetched.result?.reason || fetched.result?.error || ''}`);
+      if (fetched.status !== 'needs_approval' || !fetched.approval?.id) throw new Error(`browser fetch approval ${fetched.status}`);
+      if (existsSync(join(browserWs, 'research.md'))) throw new Error('browser fetch wrote before approval');
+      await first.decideApproval(fetched.approval.id, 'approved');
+      const fetchedApproved = await engine.act({
+        workspace: browserWs,
+        tool: 'browser.fetch',
+        args: { url: fixtureUrl, path: 'research.md' },
+        taskId: fetched.taskId,
+        approvalId: fetched.approval.id
+      });
+      if (!fetchedApproved.ok) throw new Error(`browser fetch failed: ${fetchedApproved.result?.reason || fetchedApproved.result?.error || ''}`);
       const markdown = await readFile(join(browserWs, 'research.md'), 'utf8');
       if (!markdown.includes(fixtureUrl)) throw new Error('markdown missing cited URL');
       if (!/OpenBot Research Fixture/i.test(markdown)) throw new Error('markdown missing fixture heading');
@@ -618,7 +646,15 @@ async function main() {
         '--url', fixtureUrl, '--path', 'cli-research.md'
       ], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' }, { timeoutMs: 20000 });
       const cliBrowserJson = parseCliJson(cliBrowser.output);
-      if (!cliBrowserJson.ok) throw new Error(`CLI browser: ${cliBrowser.output}`);
+      if (cliBrowserJson.status !== 'needs_approval' || !cliBrowserJson.approval?.id) throw new Error(`CLI browser approval: ${cliBrowser.output}`);
+      const cliBrowserApprove = await runNode(['cli/openbot.mjs', 'approve', cliBrowserJson.approval.id], cliEnv);
+      if (cliBrowserApprove.code !== 0) throw new Error(`CLI browser approve: ${cliBrowserApprove.output}`);
+      const cliBrowserWrite = await runNode([
+        'cli/openbot.mjs', 'act', '--workspace', browserWs, '--tool', 'browser.fetch',
+        '--url', fixtureUrl, '--path', 'cli-research.md', '--approval', cliBrowserJson.approval.id, '--task', cliBrowserJson.taskId
+      ], cliEnv, { timeoutMs: 20000 });
+      const cliBrowserWritten = parseCliJson(cliBrowserWrite.output);
+      if (!cliBrowserWritten.ok) throw new Error(`CLI browser execute: ${cliBrowserWrite.output}`);
       const cliMd = await readFile(join(browserWs, 'cli-research.md'), 'utf8');
       if (!cliMd.includes(fixtureUrl)) throw new Error('CLI markdown missing cited URL');
       pass('CLI browser.fetch saves cited Markdown for an allowlisted URL');

@@ -7,7 +7,11 @@ Added reusable local skills for persistent, operator-controlled task behavior.
 - Skills can be created, listed, selected, and deleted from the dashboard, HTTP API, or CLI.
 - Skill instructions are bounded, redacted before persistence, explicitly selected, and recorded in task audit metadata.
 - Skills remain declarative guidance: they cannot add tools, grant permissions, cross workspace boundaries, or bypass approval gates.
-- Release harness coverage expanded to 65 checks.
+- Loopback browser fetches now require approval before fetched content is written into the workspace.
+- Release harness coverage expanded to 67 checks.
+- Existing task workspaces and approval task IDs are now enforced at action execution.
+- Approved shell diagnostics deny arbitrary Node execution and out-of-workspace `ls` paths.
+- Local-only mode rejects non-loopback Ollama URLs unless explicitly opted into remote mode.
 
 ## 0.3.2 — 2026-08-27
 

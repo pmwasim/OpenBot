@@ -93,7 +93,7 @@ The first meaningful “bot, not control panel” milestone is implemented on th
 - `/api/chat`, `openbot chat`, and the dashboard use the same controller and existing policy/engine boundary.
 - Safe reads/diagnostics execute automatically; writes, deletion, publishing, external communication, and other consequential effects stop with explicit approval.
 - Model context, action results, approval details, and persisted audit events are redacted and bounded.
-- The release harness covers 65 checks, including malformed model output, approval stop, low-resource execution, CLI/API flows, task history, memory, skills, UI safety, workspace containment, LAN authentication, and audit redaction.
+- The release harness covers 67 checks, including malformed model output, approval stop, low-resource execution, CLI/API flows, task history, memory, skills, UI safety, workspace containment, LAN authentication, and audit redaction.
 - The dashboard shows recent durable tasks with audit links, and `doctor --json` explains the low-resource profile without requiring a model.
 - Operators can save, list, and delete workspace-scoped local memory; only matching memory is injected into agent context after redaction.
 - Operators can save, list, select, and delete local skills; selected skills are redacted, bounded, audited, and injected only as untrusted guidance under the OpenBot policy.

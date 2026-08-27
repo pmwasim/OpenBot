@@ -5,7 +5,7 @@ OpenBot is a free, open-source, local-first bot that turns a task into bounded, 
 ## What works now
 
 - Structured local agent loop over Ollama: a model returns either a final reply or one validated tool action at a time.
-- Safe file reads/diffs, allowlisted shell diagnostics, and allowlisted loopback browser fetches through the existing policy/engine boundary.
+- Safe file reads/diffs, allowlisted shell diagnostics, and allowlisted loopback browser fetches through the existing policy/engine boundary; fetch-and-save requires approval.
 - File writes and consequential shell work stop for one-shot, action-bound approval; the loop never auto-approves.
 - Durable task/event history, recent-task dashboard cards, redacted audit export, CLI parity, action cards, and task audit links.
 - Explicit workspace-scoped local memory managed from the dashboard, API, or CLI; only matching memory reaches the agent.
