@@ -296,6 +296,15 @@ async function main() {
     throw new Error(`legacy profile defaults ${JSON.stringify(legacyConfig)}`);
   }
   if (publicConfig(legacyConfig).resourceProfile !== 'legacy') throw new Error('legacy profile is not public');
+  const autoLegacyConfig = loadConfig({ OPENBOT_RESOURCE_PROFILE: 'auto', OPENBOT_CPU_COUNT: '2', OPENBOT_MEMORY_BYTES: String(4 * 1024 ** 3) });
+  if (autoLegacyConfig.resourceProfile !== 'legacy' || autoLegacyConfig.resourceProfileMode !== 'auto' || autoLegacyConfig.agentMaxTurns !== 3 || autoLegacyConfig.agentMaxActions !== 3) throw new Error(`auto legacy profile ${JSON.stringify(autoLegacyConfig)}`);
+  if (publicConfig(autoLegacyConfig).resourceProfileMode !== 'auto') throw new Error('auto resource selection is not public');
+  const autoStandardConfig = loadConfig({ OPENBOT_RESOURCE_PROFILE: 'auto', OPENBOT_CPU_COUNT: '8', OPENBOT_MEMORY_BYTES: String(16 * 1024 ** 3) });
+  if (autoStandardConfig.resourceProfile !== 'standard' || autoStandardConfig.resourceProfileMode !== 'auto' || autoStandardConfig.agentMaxTurns !== 6) throw new Error(`auto standard profile ${JSON.stringify(autoStandardConfig)}`);
+  const autoMemoryLegacyConfig = loadConfig({ OPENBOT_RESOURCE_PROFILE: 'auto', OPENBOT_CPU_COUNT: '8', OPENBOT_MEMORY_BYTES: String(7 * 1024 ** 3) });
+  if (autoMemoryLegacyConfig.resourceProfile !== 'legacy') throw new Error(`auto memory threshold ${JSON.stringify(autoMemoryLegacyConfig)}`);
+  const autoMemoryBoundaryConfig = loadConfig({ OPENBOT_RESOURCE_PROFILE: 'auto', OPENBOT_CPU_COUNT: '8', OPENBOT_MEMORY_BYTES: String(8 * 1024 ** 3) });
+  if (autoMemoryBoundaryConfig.resourceProfile !== 'standard') throw new Error(`auto memory boundary ${JSON.stringify(autoMemoryBoundaryConfig)}`);
   const protocolConfig = loadConfig({ OPENBOT_MODEL_PROTOCOL: 'chat-completions' });
   if (protocolConfig.modelProtocol !== 'chat-completions' || publicConfig(protocolConfig).modelProtocol !== 'chat-completions') throw new Error('model protocol configuration');
   const pidConfig = loadConfig({ OPENBOT_DATA_DIR: '/tmp/openbot-test-data' });
@@ -583,6 +592,19 @@ async function main() {
       throw new Error(`legacy doctor: ${legacyDoctor.output}`);
     }
     pass('doctor explains legacy resource limits without requiring a model');
+    const autoDoctor = await runNode(['cli/openbot.mjs', 'doctor', '--json'], {
+      OPENBOT_DATA_DIR: dataDir,
+      OPENBOT_RESOURCE_PROFILE: 'auto',
+      OPENBOT_CPU_COUNT: '2',
+      OPENBOT_MEMORY_BYTES: String(4 * 1024 ** 3),
+      HOST: '127.0.0.1'
+    });
+    const autoDoctorJson = parseCliJson(autoDoctor.output);
+    const autoResourceCheck = autoDoctorJson.checks?.find((check) => check.name === 'resources');
+    if (!autoResourceCheck || autoResourceCheck.mode !== 'auto' || autoResourceCheck.profile !== 'legacy' || !autoResourceCheck.guidance.includes('Auto profile selected legacy')) {
+      throw new Error(`auto doctor: ${autoDoctor.output}`);
+    }
+    pass('doctor explains automatic low-resource selection without requiring a model');
 
     const daemonEnv = { OPENBOT_DATA_DIR: daemonDataDir, HOST: '127.0.0.1', PORT: '4214' };
     const daemonStart = await runNode(['cli/openbot.mjs', 'start', '--detach', '--json'], daemonEnv, { timeoutMs: 15000 });

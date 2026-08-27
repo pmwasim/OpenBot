@@ -476,11 +476,14 @@ async function main() {
     checks.push({
       name: 'resources',
       ok: true,
+      mode: config.resourceProfileMode,
       profile: config.resourceProfile,
       agentMaxTurns: config.agentMaxTurns,
       agentMaxActions: config.agentMaxActions,
       agentContextChars: config.agentContextChars,
-      guidance: config.resourceProfile === 'legacy'
+      guidance: config.resourceProfileMode === 'auto'
+        ? `Auto profile selected ${config.resourceProfile}: bounded agent work uses ${config.agentMaxTurns} turns/actions; set OPENBOT_RESOURCE_PROFILE=legacy or standard to override.`
+        : config.resourceProfile === 'legacy'
         ? 'CPU-only profile: bounded agent work uses 3 turns/actions and allowlisted diagnostics do not require Docker.'
         : 'Standard profile: bounded agent work uses 6 turns/actions; use legacy on older CPU-only laptops.'
     });

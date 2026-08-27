@@ -83,18 +83,18 @@ OpenBot should provide a practical middle path: real work through isolated worke
 - OAuth, MCP, plugins, collaboration, and full audit replay remain absent or incomplete; compatible provider routing, local declarative skills, and bounded routines are now supported.
 - State uses an append-only JSONL event log with a lock and legacy migration path; retention, multi-process recovery policy, and encrypted-at-rest storage remain future work.
 - The HTTP server remains intended for local operation; explicitly enabled LAN mode requires a shared bearer token, and public-internet exposure is outside the supported boundary.
-- CPU-only legacy mode is supported for core administration and allowlisted diagnostics; natural-language reasoning still depends on an installed local model and may be too slow for some older laptops.
+- CPU-only legacy mode is supported for core administration and allowlisted diagnostics; `OPENBOT_RESOURCE_PROFILE=auto` can select it at 2 or fewer logical CPUs or below 8 GiB RAM, while explicit `legacy` and `standard` overrides remain available. Natural-language reasoning still depends on an installed local model and may be too slow for some older laptops.
 
 ### Current real-work slice
 
 The first meaningful “bot, not control panel” milestone is implemented on the authoritative main baseline:
 
-- `lib/agent.mjs` validates a strict JSON reply/action contract and runs at most six turns/actions in standard mode or three in `legacy` mode.
+- `lib/agent.mjs` validates a strict JSON reply/action contract and runs at most six turns/actions in standard mode or three in `legacy` mode; auto selection reports both requested and effective profiles.
 - `/api/chat`, `openbot chat`, and the dashboard use the same controller and existing policy/engine boundary.
 - Safe reads/diagnostics execute automatically; writes, deletion, publishing, external communication, and other consequential effects stop with explicit approval.
 - Model context, action results, approval details, and persisted audit events are redacted and bounded.
 - The release harness covers the current release checks, including malformed model output, approval stop, low-resource execution, CLI/API flows, task history, memory, named bots, skills, routines, UI safety, public brand-neutrality, workspace containment, symlink escape rejection, LAN authentication, and audit redaction.
-- The dashboard shows recent durable tasks with audit links, and `doctor --json` explains the low-resource profile without requiring a model.
+- The dashboard shows recent durable tasks with audit links, and `doctor --json` explains the low-resource profile without requiring a model; the read-only Settings view shows the requested/effective resource selection.
 - Interrupted tasks left in `running` state can be resumed through the API, CLI, or dashboard without changing their task identity or losing their event history.
 - Operators can select the default native local model protocol or an opt-in chat-completions-compatible local protocol without changing application code; local-only endpoint checks remain enforced.
 - Operators can choose among installed local models for each dashboard task, including resume and approval continuation; an empty choice uses the first model reported by the daemon, and server-side availability checks remain authoritative.

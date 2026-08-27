@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.32 — 2026-08-27
+
+Added transparent automatic resource selection for older laptops.
+
+- `OPENBOT_RESOURCE_PROFILE=auto` selects bounded `legacy` limits at 2 or fewer logical CPUs or below 8 GiB RAM and exposes the requested/effective selection through CLI doctor and dashboard Settings.
+- Keep explicit `legacy` and `standard` overrides, container-free allowlisted diagnostics in the low-resource profile, zero mandatory spend, old-laptop portability, and brand-neutral public surfaces.
+- Document that resource selection bounds agent work but cannot make a large local model fast enough for every laptop.
+
 ## 0.4.31 — 2026-08-27
 
 Closed the connector management usability gap.

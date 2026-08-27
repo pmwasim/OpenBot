@@ -100,6 +100,7 @@ async function showSettings() {
     if (!response.ok) throw new Error(config.error || 'Settings could not be loaded.');
     const values = [
       ['Resource profile', config.resourceProfile],
+      ['Resource selection', config.resourceProfileMode],
       ['Isolation', config.isolation],
       ['Local-only mode', config.localOnly ? 'enabled' : 'disabled'],
       ['Local model protocol', config.modelProtocol],

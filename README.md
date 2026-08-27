@@ -43,7 +43,7 @@ OpenBot is a free, open-source, local-first bot that turns a task into bounded, 
 - Daemon-routed administration: `memory`, `skill`, `bot`, and `routine` commands can manage server-owned state without a second local store; named-bot chat and routine Run now use the shared daemon loop.
 - Lightweight desktop launcher: `desktop` starts or reuses the local daemon and opens the dashboard in the host browser; `--no-open` supports headless sessions.
 - Optional user-level service integration: `service info`, `service install`, and `service uninstall` support macOS LaunchAgents and Linux systemd user services; `--dry-run` previews changes.
-- `legacy` resource profile for older CPU-only laptops: three turns/actions, compact context, and container-free allowlisted diagnostics.
+- `legacy` resource profile for older CPU-only laptops: three turns/actions, compact context, and container-free allowlisted diagnostics; opt-in `auto` selection chooses it at 2 or fewer logical CPUs or below 8 GiB RAM.
 - Loopback-only defaults, workspace containment, bounded requests, output/time limits, and security response headers.
 - Optional LAN mode requires `OPENBOT_AUTH_TOKEN`; startup refuses an unprotected non-loopback bind.
 
@@ -52,6 +52,7 @@ OpenBot is a free, open-source, local-first bot that turns a task into bounded, 
 ```bash
 npm run check
 OPENBOT_RESOURCE_PROFILE=legacy node cli/openbot.mjs doctor --json
+OPENBOT_RESOURCE_PROFILE=auto node cli/openbot.mjs doctor --json
 node cli/openbot.mjs chat --workspace /path/to/project "Read notes.txt and summarize it" --json
 node cli/openbot.mjs chat --daemon --workspace /path/to/project "Use the shared local daemon" --json
 node cli/openbot.mjs bot add --name "Release steward" --role "Review local releases" --instructions "Check tests and report risks." --workspace /path/to/project --json
@@ -78,7 +79,7 @@ npm run release
 npm start
 ```
 
-`doctor --json` reports the active resource profile, agent caps, and whether container isolation is expected. Use `OPENBOT_RESOURCE_PROFILE=legacy` on older CPU-only laptops.
+`doctor --json` reports the requested and selected resource profile, agent caps, and whether container isolation is expected. Use `OPENBOT_RESOURCE_PROFILE=auto` for transparent hardware-based selection (legacy at 2 or fewer logical CPUs or below 8 GiB RAM), or choose `legacy`/`standard` explicitly. This changes bounded work limits; it cannot make a large local model fast enough for every laptop.
 
 The default local model protocol is `native` (`/api/tags` and `/api/chat`). To connect a lightweight local runtime that exposes the common chat-completions shape, set `OPENBOT_MODEL_PROTOCOL=chat-completions`; OpenBot will use `/v1/models` and `/v1/chat/completions` while keeping local-only endpoint checks enabled.
 
