@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.12 — 2026-08-27
+
+Added dashboard task control parity.
+
+- Pause pending, running, or approval-bound tasks from recent-task cards.
+- Resume recoverable tasks and cancel all nonterminal controllable tasks from the dashboard.
+- Route controls through the existing durable task-state endpoint and refresh activity after each action.
+- Expand release verification to cover the dashboard task-control contract.
+
 ## 0.4.11 — 2026-08-27
 
 Added dashboard editing parity for operator-owned configuration.

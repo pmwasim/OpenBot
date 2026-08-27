@@ -335,10 +335,21 @@ function renderState(state, taskResponse = {}) {
     audit.target = '_blank';
     audit.rel = 'noopener';
     card.append(details, audit);
-    if (['pending', 'running', 'paused'].includes(String(taskItem.status || '').toLowerCase())) {
+    const taskStatus = String(taskItem.status || '').toLowerCase();
+    if (['pending', 'running', 'paused'].includes(taskStatus)) {
       const resume = element('button', 'text', 'Resume');
       resume.addEventListener('click', () => resumeTask(taskItem, resume));
       card.append(resume);
+    }
+    if (['pending', 'running', 'waiting_approval'].includes(taskStatus)) {
+      const pause = element('button', 'text', 'Pause');
+      pause.addEventListener('click', () => controlTask(taskItem, 'pause', pause));
+      card.append(pause);
+    }
+    if (['pending', 'running', 'paused', 'waiting_approval'].includes(taskStatus)) {
+      const cancel = element('button', 'text', 'Cancel task');
+      cancel.addEventListener('click', () => controlTask(taskItem, 'cancel', cancel));
+      card.append(cancel);
     }
     recent.append(card);
   }
@@ -376,6 +387,24 @@ async function resumeTask(taskItem, button) {
   const data = await response.json();
   addMessage(response.ok ? 'bot' : 'error', 'OpenBot', data.reply || data.error || data.status || 'Task recovery finished.');
   await load();
+}
+
+async function controlTask(taskItem, action, button) {
+  button.disabled = true;
+  try {
+    const response = await fetch(`/api/tasks/${encodeURIComponent(taskItem.id)}/control`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `Task could not be ${action}ed.`);
+    addMessage('bot', 'OpenBot', action === 'pause' ? 'Task paused.' : 'Task cancelled.');
+    await load();
+  } catch (error) {
+    addMessage('error', 'OpenBot', error.message || 'Task control failed.');
+    button.disabled = false;
+  }
 }
 
 async function decide(approval, decision) {

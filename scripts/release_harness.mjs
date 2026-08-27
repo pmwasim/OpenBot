@@ -96,6 +96,8 @@ async function main() {
   pass('dashboard exposes workspace, action cards, and audit links safely');
   if (!appSource.includes('editMemory') || !appSource.includes('editSkill') || !appSource.includes('editBot') || !appSource.includes("method: 'PATCH'") || !appSource.includes('Cancel') || !appSource.includes('Edit')) throw new Error('dashboard does not expose safe editing for bots, skills, and memory');
   pass('dashboard exposes safe editing for bots, skills, and workspace memory');
+  if (!appSource.includes('controlTask') || !appSource.includes('/control') || !appSource.includes('Pause') || !appSource.includes('Cancel task')) throw new Error('dashboard does not expose bounded task pause and cancel controls');
+  pass('dashboard exposes bounded task pause and cancel controls');
   const publicSurfaceFiles = ['README.md', 'PRD.md', 'SECURITY.md', 'CHANGELOG.md', 'cli/openbot.mjs', 'server.mjs', 'lib/config.mjs', 'lib/provider.mjs', 'lib/daemon.mjs', 'lib/client.mjs', 'lib/agent.mjs', 'lib/store.mjs', 'public/index.html', 'public/app.js', 'public/styles.css'];
   const forbiddenPublicBrand = /\b(?:Grok|Ollama|OpenAI|Anthropic|Gemini|Claude|Cursor|Groq)\b|x\.ai/i;
   for (const file of publicSurfaceFiles) {
