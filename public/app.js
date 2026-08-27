@@ -2,6 +2,7 @@ const chat = document.querySelector('#chat');
 const form = document.querySelector('#task-form');
 const task = document.querySelector('#task');
 const workspace = document.querySelector('#workspace');
+const memoryForm = document.querySelector('#memory-form');
 let modelName = '';
 
 function element(tag, className, text) {
@@ -45,6 +46,35 @@ function renderAuditLink(message, taskId) {
   message.querySelector('div').append(link);
 }
 
+function renderMemories(memories) {
+  const container = document.querySelector('#memories');
+  container.replaceChildren();
+  for (const memory of memories) {
+    const card = element('div', 'health memory-card');
+    const details = element('div');
+    details.append(element('b', '', memory.key), element('small', '', memory.value));
+    const remove = element('button', 'text', 'Delete');
+    remove.addEventListener('click', async () => {
+      await fetch(`/api/memories/${encodeURIComponent(memory.id)}`, { method: 'DELETE' });
+      await loadMemories(workspace.value.trim());
+    });
+    card.append(details, remove);
+    container.append(card);
+  }
+}
+
+async function loadMemories(root) {
+  const container = document.querySelector('#memories');
+  if (!root) {
+    container.replaceChildren(element('small', '', 'Enter a workspace to view its local memory.'));
+    return;
+  }
+  const response = await fetch(`/api/memories?workspace=${encodeURIComponent(root)}`);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'Memory could not be loaded.');
+  renderMemories(Array.isArray(data.memories) ? data.memories : []);
+}
+
 async function load() {
   const [health, state, taskResponse] = await Promise.all([
     fetch('/api/health').then((response) => response.json()),
@@ -60,6 +90,7 @@ async function load() {
   document.querySelector('#model-label').textContent = modelName || (health.online ? 'No model installed' : 'Ollama offline');
   dot.style.background = health.online ? 'var(--green)' : '#e78290';
   renderState(state, taskResponse);
+  await loadMemories(workspace.value.trim());
 }
 
 function renderState(state, taskResponse = {}) {
@@ -123,6 +154,32 @@ async function decide(approval, decision) {
   }
   await load();
 }
+
+memoryForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const root = workspace.value.trim();
+  const key = document.querySelector('#memory-key').value.trim();
+  const value = document.querySelector('#memory-value').value.trim();
+  if (!root || !key || !value) {
+    addMessage('error', 'OpenBot', 'Enter a workspace, memory key, and value first.');
+    return;
+  }
+  const response = await fetch('/api/memories', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ workspace: root, key, value })
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    addMessage('error', 'OpenBot', data.error || 'Memory could not be saved.');
+    return;
+  }
+  document.querySelector('#memory-key').value = '';
+  document.querySelector('#memory-value').value = '';
+  await loadMemories(root);
+});
+
+workspace.addEventListener('change', () => loadMemories(workspace.value.trim()).catch(() => {}));
 
 form.addEventListener('submit', async (event) => {
   event.preventDefault();

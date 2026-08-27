@@ -13,8 +13,12 @@ const checks = [];
 const pass = (name) => { checks.push({ name, ok: true }); console.log(`PASS ${name}`); };
 
 async function http(path, options = {}) {
+  return httpOn(port, path, options);
+}
+
+async function httpOn(targetPort, path, options = {}) {
   return new Promise((resolve, reject) => {
-    const req = request(`${base}${path}`, { ...options, headers: { 'content-type': 'application/json', ...(options.headers || {}) } }, (res) => {
+    const req = request(`http://127.0.0.1:${targetPort}${path}`, { ...options, headers: { 'content-type': 'application/json', ...(options.headers || {}) } }, (res) => {
       let data = ''; res.setEncoding('utf8'); res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: data }));
     });
@@ -60,6 +64,7 @@ async function main() {
     'public/index.html',
     'PRD.md',
     'CHANGELOG.md',
+    'SECURITY.md',
     'LICENSE',
     'lib/store.mjs',
     'lib/policy.mjs',
@@ -80,8 +85,8 @@ async function main() {
   }
   const indexSource = await readFile(join(root, 'public/index.html'), 'utf8');
   const appSource = await readFile(join(root, 'public/app.js'), 'utf8');
-  if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"') || !indexSource.includes('id="recent-tasks"')) throw new Error('dashboard is missing workspace or task history');
-  if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/resume') || !appSource.includes('/api/tasks')) throw new Error('dashboard does not expose agent actions, resume, task history, and audit links');
+  if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"') || !indexSource.includes('id="recent-tasks"') || !indexSource.includes('id="memories"') || !indexSource.includes('id="memory-form"')) throw new Error('dashboard is missing workspace, task history, or memory controls');
+  if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/memories')) throw new Error('dashboard does not expose agent actions, resume, task history, memory, and audit links');
   if (appSource.includes('e.innerHTML=`')) throw new Error('dashboard renders state with unsafe innerHTML');
   pass('dashboard exposes workspace, action cards, and audit links safely');
 
@@ -104,13 +109,14 @@ async function main() {
   }
   pass('policy requires approval for send/publish/purchase/delete/production-change');
 
-  const { assertBindHost, isLoopbackHost } = await import(pathToFileURL(join(root, 'lib/loopback.mjs')).href);
+  const { assertBindHost, isLoopbackHost, hasBearerToken } = await import(pathToFileURL(join(root, 'lib/loopback.mjs')).href);
   if (!isLoopbackHost('127.0.0.1') || isLoopbackHost('0.0.0.0')) throw new Error('loopback helper');
   let refused = false;
   try { assertBindHost('0.0.0.0', {}); } catch { refused = true; }
   if (!refused) throw new Error('expected non-loopback refuse');
   const overridden = assertBindHost('0.0.0.0', { OPENBOT_ALLOW_NON_LOOPBACK: '1' });
   if (!overridden.overridden) throw new Error('expected override');
+  if (!hasBearerToken({ headers: { authorization: 'Bearer local-secret' } }, 'local-secret') || hasBearerToken({ headers: { authorization: 'Bearer wrong' } }, 'local-secret')) throw new Error('bearer auth helper');
   pass('loopback bind is refused unless explicitly overridden');
 
   const { createProviderHub, redactSecrets, createOpenAICompatibleAdapter } = await import(pathToFileURL(join(root, 'lib/provider.mjs')).href);
@@ -171,6 +177,20 @@ async function main() {
   if (!loopStore.events.some((event) => event.type === 'agent.action.executed')) throw new Error('agent action audit');
   pass('agent contract rejects malformed tools and completes a safe multi-turn loop');
 
+  const memoryContextStore = fakeAgentStore();
+  memoryContextStore.listMemories = async () => [{ key: 'response_style', value: 'Use concise bullet points.', workspace: '/tmp/agent-harness' }];
+  let capturedMemoryMessages = [];
+  const memoryContext = createAgentController({
+    store: memoryContextStore,
+    engine: loopEngine,
+    provider: { async chatStructured(input) { capturedMemoryMessages = input.messages; return { ok: true, model: 'fixture', reply: JSON.stringify({ reply: 'Memory loaded.' }) }; } }
+  });
+  const memoryResult = await memoryContext.run({ prompt: 'Use my preferences.', workspace: '/tmp/agent-harness', model: 'fixture' });
+  if (memoryResult.status !== 'completed' || !capturedMemoryMessages.some((message) => String(message.content).includes('response_style') && String(message.content).includes('concise bullet points'))) {
+    throw new Error('agent memory context');
+  }
+  pass('agent receives only matching scoped local memory');
+
   const approvalStore = fakeAgentStore();
   const approval = createAgentController({
     store: approvalStore,
@@ -205,6 +225,13 @@ async function main() {
     const freshState = await freshStore.getState();
     if (freshState.approvals.length || freshState.routines.length) throw new Error('fresh store contains synthetic approvals or routines');
     pass('fresh store starts without synthetic user work');
+    const savedMemory = await freshStore.createMemory({ workspace: '/tmp/agent-harness', key: 'secret_note', value: 'token=sk-memory-secret' });
+    if (!savedMemory.memory?.id || savedMemory.memory.value.includes('sk-memory-secret')) throw new Error('memory redaction or creation');
+    const listedMemory = await freshStore.listMemories({ workspace: '/tmp/agent-harness' });
+    if (listedMemory.length !== 1 || listedMemory[0].key !== 'secret_note') throw new Error('memory listing');
+    await freshStore.deleteMemory(savedMemory.memory.id);
+    if ((await freshStore.listMemories({ workspace: '/tmp/agent-harness' })).length !== 0) throw new Error('memory deletion');
+    pass('local memory is durable, scoped, redacted, and removable');
 
     await writeFile(join(dataDir, 'state.json'), JSON.stringify({
       approvals: [{ id: 'legacy-1', title: 'Legacy approval', detail: 'migrated from state.json', status: 'waiting' }],
@@ -231,6 +258,15 @@ async function main() {
     const cliFail = await runNode(['cli/openbot.mjs', 'show', 'missing-task-id'], { OPENBOT_DATA_DIR: dataDir });
     if (cliFail.code === 0) throw new Error('show missing should fail');
     pass('CLI run persists a task and fails on missing show');
+    const cliMemoryAdd = await runNode(['cli/openbot.mjs', 'memory', 'add', '--workspace', fileWs, '--key', 'tone', '--value', 'Concise'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
+    if (cliMemoryAdd.code !== 0) throw new Error(`CLI memory add: ${cliMemoryAdd.output}`);
+    const cliMemoryList = await runNode(['cli/openbot.mjs', 'memory', 'list', '--workspace', fileWs, '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
+    const cliMemoryListJson = parseCliJson(cliMemoryList.output);
+    if (cliMemoryList.code !== 0 || !cliMemoryListJson.memories?.some((memory) => memory.key === 'tone')) throw new Error(`CLI memory list: ${cliMemoryList.output}`);
+    const cliMemoryId = cliMemoryListJson.memories.find((memory) => memory.key === 'tone').id;
+    const cliMemoryDelete = await runNode(['cli/openbot.mjs', 'memory', 'delete', cliMemoryId, '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
+    if (cliMemoryDelete.code !== 0) throw new Error(`CLI memory delete: ${cliMemoryDelete.output}`);
+    pass('CLI memory add/list/delete manages operator-owned facts');
     const legacyDoctor = await runNode(['cli/openbot.mjs', 'doctor', '--json'], {
       OPENBOT_DATA_DIR: dataDir,
       OPENBOT_RESOURCE_PROFILE: 'legacy',
@@ -277,6 +313,15 @@ async function main() {
       const taskListBody = JSON.parse(taskList.body);
       if (taskList.status !== 200 || !Array.isArray(taskListBody.tasks)) throw new Error(`task list ${taskList.status} ${taskList.body}`);
       pass('task history endpoint returns durable tasks');
+      const memoryCreate = await http('/api/memories', { method: 'POST', body: JSON.stringify({ workspace: agentWs, key: 'response_style', value: 'Use concise bullet points.' }) });
+      const memoryCreateBody = JSON.parse(memoryCreate.body);
+      if (memoryCreate.status !== 200 || !memoryCreateBody.memory?.id) throw new Error(`memory create ${memoryCreate.status} ${memoryCreate.body}`);
+      const memoryList = await http(`/api/memories?workspace=${encodeURIComponent(agentWs)}`);
+      const memoryListBody = JSON.parse(memoryList.body);
+      if (memoryList.status !== 200 || memoryListBody.memories?.[0]?.key !== 'response_style') throw new Error(`memory list ${memoryList.status} ${memoryList.body}`);
+      const memoryDelete = await http(`/api/memories/${encodeURIComponent(memoryCreateBody.memory.id)}`, { method: 'DELETE' });
+      if (memoryDelete.status !== 200) throw new Error(`memory delete ${memoryDelete.status} ${memoryDelete.body}`);
+      pass('memory API creates, lists, scopes, and deletes local facts');
       await writeFile(join(agentWs, 'notes.txt'), 'agent fixture\n');
       const agentRead = await http('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'Read the notes.', workspace: agentWs, model: 'fixture' }) });
       const agentReadBody = JSON.parse(agentRead.body);
@@ -317,6 +362,34 @@ async function main() {
     if (denied.code === 0) throw new Error('server accepted non-loopback bind');
     if (!denied.output.includes('OPENBOT_ALLOW_NON_LOOPBACK')) throw new Error(denied.output || 'missing refuse message');
     pass('server refuses non-loopback bind without override');
+    const unauthenticatedLan = await runNode(['server.mjs'], {
+      HOST: '0.0.0.0', PORT: '4212', OPENBOT_DATA_DIR: dataDir, OPENBOT_ALLOW_NON_LOOPBACK: '1'
+    }, { timeoutMs: 4000 });
+    if (unauthenticatedLan.code === 0 || !unauthenticatedLan.output.includes('OPENBOT_AUTH_TOKEN')) throw new Error(`server allowed unauthenticated LAN mode: ${unauthenticatedLan.output}`);
+    pass('server refuses non-loopback mode without an authentication token');
+    const protectedChild = spawn(process.execPath, ['server.mjs'], {
+      cwd: root,
+      env: { ...process.env, HOST: '0.0.0.0', PORT: '4213', OPENBOT_DATA_DIR: dataDir, OPENBOT_ALLOW_NON_LOOPBACK: '1', OPENBOT_AUTH_TOKEN: 'harness-token' },
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    let protectedOutput = '';
+    protectedChild.stdout.on('data', (chunk) => { protectedOutput += chunk; });
+    protectedChild.stderr.on('data', (chunk) => { protectedOutput += chunk; });
+    try {
+      let protectedReady = false;
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        try { const response = await httpOn(4213, '/api/health'); if ([200, 401].includes(response.status)) { protectedReady = true; break; } } catch {}
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (!protectedReady) throw new Error(`protected server did not start: ${protectedOutput}`);
+      const unauthorized = await httpOn(4213, '/api/health');
+      const authorized = await httpOn(4213, '/api/health', { headers: { authorization: 'Bearer harness-token' } });
+      if (unauthorized.status !== 401 || authorized.status !== 200) throw new Error(`LAN auth statuses ${unauthorized.status}/${authorized.status}`);
+    } finally {
+      protectedChild.kill('SIGTERM');
+      await new Promise((resolve) => protectedChild.once('exit', resolve));
+    }
+    pass('non-loopback requests require and accept the configured bearer token');
 
     const { createEngine } = await import(pathToFileURL(join(root, 'lib/engine.mjs')).href);
     const engine = createEngine({ store: first, actor: 'harness' });
