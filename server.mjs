@@ -65,7 +65,7 @@ async function resolveAgentModel(requested) {
   return selected;
 }
 
-async function runAgentTask({ taskId, prompt, workspace, model, maxTurns, approvalId }) {
+async function runAgentTask({ taskId, prompt, workspace, model, maxTurns, approvalId, skill }) {
   const controller = createAgentController({
     store,
     provider: agentProvider,
@@ -75,7 +75,7 @@ async function runAgentTask({ taskId, prompt, workspace, model, maxTurns, approv
     maxActions: config.agentMaxActions,
     maxContextChars: config.agentContextChars
   });
-  return controller.run({ taskId, prompt, workspace, model, approvalId });
+  return controller.run({ taskId, prompt, workspace, model, approvalId, skill });
 }
 
 function agentHttpStatus(result) {
@@ -139,6 +139,22 @@ const app = http.createServer(async (req, res) => {
       const id = url.pathname.slice('/api/memories/'.length);
       return json(res, 200, await store.deleteMemory(id));
     }
+    if (url.pathname === '/api/skills' && req.method === 'GET') {
+      return json(res, 200, { skills: await store.listSkills() });
+    }
+    if (url.pathname === '/api/skills' && req.method === 'POST') {
+      const payload = await body(req);
+      return json(res, 200, await store.createSkill(payload));
+    }
+    if (url.pathname.startsWith('/api/skills/') && req.method === 'GET') {
+      const id = decodeURIComponent(url.pathname.slice('/api/skills/'.length));
+      const skill = await store.getSkill(id);
+      return skill ? json(res, 200, { skill }) : json(res, 404, { error: 'Skill not found.' });
+    }
+    if (url.pathname.startsWith('/api/skills/') && req.method === 'DELETE') {
+      const id = decodeURIComponent(url.pathname.slice('/api/skills/'.length));
+      return json(res, 200, await store.deleteSkill(id));
+    }
     if (url.pathname.startsWith('/api/tasks/') && req.method === 'GET') {
       const rest = url.pathname.slice('/api/tasks/'.length);
       const [taskId, extra] = rest.split('/');
@@ -167,15 +183,15 @@ const app = http.createServer(async (req, res) => {
       if (!['pending', 'waiting_approval'].includes(task.status)) return json(res, 409, { error: `Task is not resumable from status "${task.status}".` });
       const payload = await body(req);
       const selected = await resolveAgentModel(payload.model);
-      const result = await runAgentTask({ taskId, prompt: task.prompt, workspace: task.workspace, model: selected, maxTurns: payload.maxTurns, approvalId: payload.approvalId });
+      const result = await runAgentTask({ taskId, prompt: task.prompt, workspace: task.workspace, model: selected, maxTurns: payload.maxTurns, approvalId: payload.approvalId, skill: payload.skill || task.skill });
       return json(res, agentHttpStatus(result), { model: selected, ...result });
     }
     if (url.pathname === '/api/chat' && req.method === 'POST') {
-      const { message, model, workspace, taskId, maxTurns } = await body(req);
+      const { message, model, workspace, taskId, maxTurns, skill } = await body(req);
       if (typeof message !== 'string' || !message.trim()) return json(res, 400, { error: 'A task is required.' });
       if (typeof workspace !== 'string' || !workspace.trim() || workspace === 'local') return json(res, 400, { error: 'An explicit workspace path is required for agent work.' });
       const selected = await resolveAgentModel(model);
-      const result = await runAgentTask({ taskId, prompt: message, workspace, model: selected, maxTurns });
+      const result = await runAgentTask({ taskId, prompt: message, workspace, model: selected, maxTurns, skill });
       return json(res, agentHttpStatus(result), { model: selected, ...result });
     }
     const file = url.pathname === '/' ? join(publicDir, 'index.html') : join(publicDir, url.pathname);

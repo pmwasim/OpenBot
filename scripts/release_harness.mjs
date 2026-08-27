@@ -85,8 +85,8 @@ async function main() {
   }
   const indexSource = await readFile(join(root, 'public/index.html'), 'utf8');
   const appSource = await readFile(join(root, 'public/app.js'), 'utf8');
-  if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"') || !indexSource.includes('id="recent-tasks"') || !indexSource.includes('id="memories"') || !indexSource.includes('id="memory-form"')) throw new Error('dashboard is missing workspace, task history, or memory controls');
-  if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/memories')) throw new Error('dashboard does not expose agent actions, resume, task history, memory, and audit links');
+  if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"') || !indexSource.includes('id="recent-tasks"') || !indexSource.includes('id="memories"') || !indexSource.includes('id="memory-form"') || !indexSource.includes('id="skills"') || !indexSource.includes('id="skill-form"')) throw new Error('dashboard is missing workspace, task history, memory, or skill controls');
+  if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, resume, task history, memory, skills, and audit links');
   if (appSource.includes('e.innerHTML=`')) throw new Error('dashboard renders state with unsafe innerHTML');
   pass('dashboard exposes workspace, action cards, and audit links safely');
 
@@ -191,6 +191,23 @@ async function main() {
   }
   pass('agent receives only matching scoped local memory');
 
+  const skillContextStore = fakeAgentStore();
+  skillContextStore.getSkill = async (selector) => selector === 'release-check' ? {
+    id: 'skill-release-check', name: 'release-check', description: 'Review a release safely.', instructions: 'Inspect the project and report the smallest release checklist.'
+  } : null;
+  let capturedSkillMessages = [];
+  const skillContext = createAgentController({
+    store: skillContextStore,
+    engine: loopEngine,
+    provider: { async chatStructured(input) { capturedSkillMessages = input.messages; return { ok: true, model: 'fixture', reply: JSON.stringify({ reply: 'Skill loaded.' }) }; } }
+  });
+  const skillResult = await skillContext.run({ prompt: 'Review this project.', workspace: '/tmp/agent-harness', model: 'fixture', skill: 'release-check' });
+  if (skillResult.status !== 'completed' || !capturedSkillMessages.some((message) => String(message.content).includes('release-check') && String(message.content).includes('smallest release checklist'))) {
+    throw new Error('agent skill context');
+  }
+  if (!skillContextStore.events.some((event) => event.type === 'agent.started' && event.payload.skill === 'release-check')) throw new Error('skill selection audit');
+  pass('agent receives an explicitly selected local skill as bounded, audited guidance');
+
   const approvalStore = fakeAgentStore();
   const approval = createAgentController({
     store: approvalStore,
@@ -232,6 +249,13 @@ async function main() {
     await freshStore.deleteMemory(savedMemory.memory.id);
     if ((await freshStore.listMemories({ workspace: '/tmp/agent-harness' })).length !== 0) throw new Error('memory deletion');
     pass('local memory is durable, scoped, redacted, and removable');
+    const savedSkill = await freshStore.createSkill({ name: 'release-check', description: 'Safe release review', instructions: 'Check tests and report token=sk-skill-secret.' });
+    if (!savedSkill.skill?.id || savedSkill.skill.instructions.includes('sk-skill-secret')) throw new Error('skill redaction or creation');
+    if (!(await freshStore.getSkill('RELEASE-CHECK'))?.id) throw new Error('skill name lookup');
+    if ((await freshStore.listSkills()).length !== 1) throw new Error('skill listing');
+    await freshStore.deleteSkill(savedSkill.skill.id);
+    if ((await freshStore.listSkills()).length !== 0) throw new Error('skill deletion');
+    pass('local skills are durable, redacted, explicitly addressable, and removable');
 
     await writeFile(join(dataDir, 'state.json'), JSON.stringify({
       approvals: [{ id: 'legacy-1', title: 'Legacy approval', detail: 'migrated from state.json', status: 'waiting' }],
@@ -267,6 +291,15 @@ async function main() {
     const cliMemoryDelete = await runNode(['cli/openbot.mjs', 'memory', 'delete', cliMemoryId, '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
     if (cliMemoryDelete.code !== 0) throw new Error(`CLI memory delete: ${cliMemoryDelete.output}`);
     pass('CLI memory add/list/delete manages operator-owned facts');
+    const cliSkillAdd = await runNode(['cli/openbot.mjs', 'skill', 'add', '--name', 'summarize', '--description', 'Summarize safely', '--instructions', 'Read relevant files and summarize findings.', '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
+    if (cliSkillAdd.code !== 0) throw new Error(`CLI skill add: ${cliSkillAdd.output}`);
+    const cliSkillList = await runNode(['cli/openbot.mjs', 'skill', 'list', '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
+    const cliSkillListJson = parseCliJson(cliSkillList.output);
+    if (cliSkillList.code !== 0 || !cliSkillListJson.skills?.some((skill) => skill.name === 'summarize')) throw new Error(`CLI skill list: ${cliSkillList.output}`);
+    const cliSkillId = cliSkillListJson.skills.find((skill) => skill.name === 'summarize').id;
+    const cliSkillDelete = await runNode(['cli/openbot.mjs', 'skill', 'delete', cliSkillId, '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
+    if (cliSkillDelete.code !== 0) throw new Error(`CLI skill delete: ${cliSkillDelete.output}`);
+    pass('CLI skill add/list/delete manages reusable local instructions');
     const legacyDoctor = await runNode(['cli/openbot.mjs', 'doctor', '--json'], {
       OPENBOT_DATA_DIR: dataDir,
       OPENBOT_RESOURCE_PROFILE: 'legacy',
@@ -292,7 +325,8 @@ async function main() {
           JSON.stringify({ action: { tool: 'file.write', args: { path: 'notes.txt', contents: 'changed by agent\n' } } }),
           JSON.stringify({ action: { tool: 'file.write', args: { path: 'notes.txt', contents: 'changed by agent\n' } } }),
           JSON.stringify({ reply: 'The approved change is complete.' }),
-          'not-json'
+          'not-json',
+          JSON.stringify({ reply: 'The skill is loaded.' })
         ])
       },
       stdio: ['ignore', 'pipe', 'pipe']
@@ -322,6 +356,20 @@ async function main() {
       const memoryDelete = await http(`/api/memories/${encodeURIComponent(memoryCreateBody.memory.id)}`, { method: 'DELETE' });
       if (memoryDelete.status !== 200) throw new Error(`memory delete ${memoryDelete.status} ${memoryDelete.body}`);
       pass('memory API creates, lists, scopes, and deletes local facts');
+      const skillCreate = await http('/api/skills', { method: 'POST', body: JSON.stringify({ name: 'release-check', description: 'Release review', instructions: 'Read tests, then report release risks.' }) });
+      const skillCreateBody = JSON.parse(skillCreate.body);
+      if (skillCreate.status !== 200 || !skillCreateBody.skill?.id) throw new Error(`skill create ${skillCreate.status} ${skillCreate.body}`);
+      const skillList = await http('/api/skills');
+      const skillListBody = JSON.parse(skillList.body);
+      if (skillList.status !== 200 || skillListBody.skills?.[0]?.name !== 'release-check') throw new Error(`skill list ${skillList.status} ${skillList.body}`);
+      const skillDelete = await http(`/api/skills/${encodeURIComponent(skillCreateBody.skill.id)}`, { method: 'DELETE' });
+      if (skillDelete.status !== 200) throw new Error(`skill delete ${skillDelete.status} ${skillDelete.body}`);
+      pass('skill API creates, lists, selects by durable id, and deletes local guidance');
+      const tasksBeforeBadSkill = taskListBody.tasks.length;
+      const badSkill = await http('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'This must not start.', workspace: agentWs, model: 'fixture', skill: 'missing-skill' }) });
+      const tasksAfterBadSkill = JSON.parse((await http('/api/tasks')).body).tasks || [];
+      if (badSkill.status !== 404 || tasksAfterBadSkill.length !== tasksBeforeBadSkill) throw new Error(`unknown skill ${badSkill.status} ${badSkill.body}`);
+      pass('unknown local skills are rejected before a task is created');
       await writeFile(join(agentWs, 'notes.txt'), 'agent fixture\n');
       const agentRead = await http('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'Read the notes.', workspace: agentWs, model: 'fixture' }) });
       const agentReadBody = JSON.parse(agentRead.body);
@@ -346,6 +394,12 @@ async function main() {
       const agentMalformedBody = JSON.parse(agentMalformed.body);
       if (agentMalformed.status !== 502 || agentMalformedBody.status !== 'failed' || !String(agentMalformedBody.error).includes('contract')) throw new Error(`agent malformed ${agentMalformed.status} ${agentMalformed.body}`);
       pass('agent chat reports malformed model output as a bounded contract failure');
+      const skillForChat = await http('/api/skills', { method: 'POST', body: JSON.stringify({ name: 'chat-skill', instructions: 'Use a concise release checklist.' }) });
+      const skillForChatBody = JSON.parse(skillForChat.body);
+      const agentWithSkill = await http('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'Use the skill.', workspace: agentWs, model: 'fixture', skill: skillForChatBody.skill.id }) });
+      const agentWithSkillBody = JSON.parse(agentWithSkill.body);
+      if (agentWithSkill.status !== 200 || agentWithSkillBody.status !== 'completed') throw new Error(`agent skill ${agentWithSkill.status} ${agentWithSkill.body}`);
+      pass('agent chat accepts an explicit local skill without changing approval boundaries');
       const invalidModel = await http('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'test', model: '__not_installed__' }) });
       if (![400, 503].includes(invalidModel.status)) throw new Error(`status ${invalidModel.status}`); pass('uninstalled model is rejected');
       const oversized = await http('/api/approval', { method: 'POST', body: JSON.stringify({ id: 'x', decision: 'x', padding: 'a'.repeat(70000) }) });

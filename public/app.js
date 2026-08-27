@@ -3,6 +3,8 @@ const form = document.querySelector('#task-form');
 const task = document.querySelector('#task');
 const workspace = document.querySelector('#workspace');
 const memoryForm = document.querySelector('#memory-form');
+const skillForm = document.querySelector('#skill-form');
+const skillSelect = document.querySelector('#skill');
 let modelName = '';
 
 function element(tag, className, text) {
@@ -75,6 +77,36 @@ async function loadMemories(root) {
   renderMemories(Array.isArray(data.memories) ? data.memories : []);
 }
 
+function renderSkills(skills) {
+  const container = document.querySelector('#skills');
+  const selected = skillSelect.value;
+  skillSelect.replaceChildren(element('option', '', 'No local skill'));
+  container.replaceChildren();
+  for (const skill of skills) {
+    const option = element('option', '', skill.name);
+    option.value = skill.id;
+    skillSelect.append(option);
+    const card = element('div', 'health memory-card');
+    const details = element('div');
+    details.append(element('b', '', skill.name), element('small', '', skill.description || 'Reusable local instructions'));
+    const remove = element('button', 'text', 'Delete');
+    remove.addEventListener('click', async () => {
+      await fetch(`/api/skills/${encodeURIComponent(skill.id)}`, { method: 'DELETE' });
+      await loadSkills();
+    });
+    card.append(details, remove);
+    container.append(card);
+  }
+  if ([...skillSelect.options].some((option) => option.value === selected)) skillSelect.value = selected;
+}
+
+async function loadSkills() {
+  const response = await fetch('/api/skills');
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'Skills could not be loaded.');
+  renderSkills(Array.isArray(data.skills) ? data.skills : []);
+}
+
 async function load() {
   const [health, state, taskResponse] = await Promise.all([
     fetch('/api/health').then((response) => response.json()),
@@ -90,7 +122,7 @@ async function load() {
   document.querySelector('#model-label').textContent = modelName || (health.online ? 'No model installed' : 'Ollama offline');
   dot.style.background = health.online ? 'var(--green)' : '#e78290';
   renderState(state, taskResponse);
-  await loadMemories(workspace.value.trim());
+  await Promise.all([loadMemories(workspace.value.trim()), loadSkills()]);
 }
 
 function renderState(state, taskResponse = {}) {
@@ -179,6 +211,32 @@ memoryForm.addEventListener('submit', async (event) => {
   await loadMemories(root);
 });
 
+skillForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const name = document.querySelector('#skill-name').value.trim();
+  const description = document.querySelector('#skill-description').value.trim();
+  const instructions = document.querySelector('#skill-instructions').value.trim();
+  if (!name || !instructions) {
+    addMessage('error', 'OpenBot', 'Enter a skill name and reusable instructions first.');
+    return;
+  }
+  const response = await fetch('/api/skills', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name, description, instructions })
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    addMessage('error', 'OpenBot', data.error || 'Skill could not be saved.');
+    return;
+  }
+  document.querySelector('#skill-name').value = '';
+  document.querySelector('#skill-description').value = '';
+  document.querySelector('#skill-instructions').value = '';
+  await loadSkills();
+  skillSelect.value = data.skill.id;
+});
+
 workspace.addEventListener('change', () => loadMemories(workspace.value.trim()).catch(() => {}));
 
 form.addEventListener('submit', async (event) => {
@@ -196,7 +254,7 @@ form.addEventListener('submit', async (event) => {
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ message, workspace: root, model: modelName || undefined })
+      body: JSON.stringify({ message, workspace: root, model: modelName || undefined, skill: skillSelect.value || undefined })
     });
     const data = await response.json();
     pending.querySelector('b').textContent = data.model || 'OpenBot';

@@ -9,7 +9,7 @@ import { openStore } from '../lib/store.mjs';
 import { createEngine } from '../lib/engine.mjs';
 import { createAgentController } from '../lib/agent.mjs';
 
-const USAGE = `OpenBot CLI (control-plane preview)
+const USAGE = `OpenBot CLI (local agent)
 
 Usage: node cli/openbot.mjs <command> [options]
 
@@ -33,6 +33,9 @@ Commands:
   memory list        List workspace-scoped local memory
   memory add         Save an operator-approved memory fact
   memory delete      Delete a local memory fact
+  skill list         List reusable local skills
+  skill add          Save an operator-approved local skill
+  skill delete       Delete a local skill
 
 Options:
   --json             Print machine-readable JSON
@@ -40,6 +43,10 @@ Options:
   --model <name>     Local Ollama model (defaults to the first installed model)
   --key <name>       Memory key for memory add
   --value <text>     Memory value for memory add
+  --name <name>      Skill name for skill add
+  --description <t>  Skill description for skill add
+  --instructions <t> Skill instructions for skill add
+  --skill <name>     Select a local skill for chat
   --workspace <dir>  Task workspace directory
   --task <id>        Task id for propose
   --path <path>      Workspace-relative file path
@@ -68,7 +75,11 @@ const VALUE_FLAGS = {
   '--action': 'actionId',
   '--model': 'model',
   '--key': 'key',
-  '--value': 'value'
+  '--value': 'value',
+  '--name': 'name',
+  '--description': 'description',
+  '--instructions': 'instructions',
+  '--skill': 'skill'
 };
 
 function parseArgs(argv) {
@@ -198,7 +209,7 @@ async function runAgent(store, config, flags, prompt) {
     maxActions: config.agentMaxActions,
     maxContextChars: config.agentContextChars
   });
-  const result = await controller.run({ prompt, workspace: flags.workspace, taskId: flags.taskId, model });
+  const result = await controller.run({ prompt, workspace: flags.workspace, taskId: flags.taskId, model, skill: flags.skill });
   if (flags.json) print({ model: model || 'fixture', ...result }, true);
   else print(result.reply || `${result.status}${result.approvals?.length ? `: approval ${result.approvals[0].id}` : ''}`);
   if (!['completed', 'waiting_approval'].includes(result.status)) process.exit(result.status === 'denied' ? 2 : 1);
@@ -319,6 +330,26 @@ async function main() {
     fail(Object.assign(new Error('Use memory list, memory add, or memory delete.'), { exitCode: 1 }));
   }
 
+  if (command === 'skill') {
+    const subcommand = positional[1];
+    if (subcommand === 'list') {
+      print({ skills: await store.listSkills() }, true);
+      return;
+    }
+    if (subcommand === 'add') {
+      const created = await store.createSkill({ name: flags.name, description: flags.description, instructions: flags.instructions });
+      print(created, true);
+      return;
+    }
+    if (subcommand === 'delete') {
+      const id = positional[2];
+      if (!id) fail(Object.assign(new Error('Skill id is required.'), { exitCode: 1 }));
+      print(await store.deleteSkill(id), true);
+      return;
+    }
+    fail(Object.assign(new Error('Use skill list, skill add, or skill delete.'), { exitCode: 1 }));
+  }
+
   if (command === 'run') {
     const prompt = positional.slice(1).join(' ').trim();
     if (!prompt) fail(Object.assign(new Error('run requires a prompt.'), { exitCode: 1 }));
@@ -326,7 +357,8 @@ async function main() {
       prompt,
       kind: flags.kind || 'plan',
       title: flags.title,
-      workspace: flags.workspace
+      workspace: flags.workspace,
+      skill: flags.skill
     });
     print(created, true);
     return;

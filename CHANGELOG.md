@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.3 — 2026-08-27
+
+Added reusable local skills for persistent, operator-controlled task behavior.
+
+- Skills can be created, listed, selected, and deleted from the dashboard, HTTP API, or CLI.
+- Skill instructions are bounded, redacted before persistence, explicitly selected, and recorded in task audit metadata.
+- Skills remain declarative guidance: they cannot add tools, grant permissions, cross workspace boundaries, or bypass approval gates.
+- Release harness coverage expanded to 65 checks.
+
 ## 0.3.2 — 2026-08-27
 
 Added lightweight persistent memory and protected LAN mode for local teammates.
