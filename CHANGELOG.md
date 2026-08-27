@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.34 — 2026-08-27
+
+Added bounded retry for failed tasks.
+
+- Retry terminally failed tasks from the dashboard, API, or CLI up to three times while preserving task identity and durable audit history.
+- Clear stale outcomes on retry, keep retry state server-authoritative, and require fresh approvals for consequential actions.
+- Preserve local-first operation, zero mandatory spend, old-laptop portability, and brand-neutral public surfaces.
+
 ## 0.4.33 — 2026-08-27
 
 Added bounded search for persistent named-bot conversations.

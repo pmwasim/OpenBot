@@ -118,6 +118,8 @@ async function main() {
   const connectorSource = await readFile(join(root, 'lib/connectors.mjs'), 'utf8');
   if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"') || !indexSource.includes('id="recent-tasks"') || !indexSource.includes('id="memories"') || !indexSource.includes('id="memory-form"') || !indexSource.includes('id="skills"') || !indexSource.includes('id="skill-form"') || !indexSource.includes('id="routine-form"') || !indexSource.includes('id="routine-schedule"') || !indexSource.includes('id="bot"') || !indexSource.includes('id="bot-form"') || !indexSource.includes('id="bot-name"') || !indexSource.includes('id="provider"') || !indexSource.includes('id="model"') || !indexSource.includes('id="connector-form"') || !indexSource.includes('id="connectors"')) throw new Error('dashboard is missing workspace, provider, model, bot, connector, task history, memory, skill, or routine controls');
   if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/export') || !appSource.includes('/result') || !appSource.includes('/artifacts') || !appSource.includes('Open structured result') || !appSource.includes('Artifacts') || !appSource.includes('Download audit') || !appSource.includes('/resume') || !appSource.includes('resumeTask') || !appSource.includes('Resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/tasks/') || !appSource.includes('after=') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('/api/routines') || !appSource.includes('/api/bots') || !appSource.includes('/messages') || !appSource.includes('loadBotConversation') || !appSource.includes('/api/connectors') || !appSource.includes('loadConnectors') || !appSource.includes('connector.fetch') || !appSource.includes('Run now') || !appSource.includes('botId') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, recovery, task history, live activity, memory, skills, routines, bots, connectors, persistent conversations, and result/artifact delivery');
+  if (!appSource.includes('retryTask') || !appSource.includes('/retry') || !serverSource.includes("url.pathname.endsWith('/retry')") || !cliSource.includes("command === 'retry'") || !clientSource.includes('daemonRetryTask')) throw new Error('failed-task retry is not exposed across clients');
+  pass('failed-task retry is exposed across clients');
   if (appSource.includes('e.innerHTML=`')) throw new Error('dashboard renders state with unsafe innerHTML');
   pass('dashboard exposes workspace, action cards, structured results, audit links, and downloadable task artifacts safely');
   if (!appSource.includes('editMemory') || !appSource.includes('editSkill') || !appSource.includes('editBot') || !appSource.includes('editConnector') || !appSource.includes("method: 'PATCH'") || !appSource.includes('Cancel') || !appSource.includes('Edit')) throw new Error('dashboard does not expose safe editing for bots, skills, memory, and connectors');
@@ -529,6 +531,20 @@ async function main() {
     if (!migrated.approvals.some((item) => item.id === 'legacy-1')) throw new Error('legacy approval missing');
     const created = await first.createTask({ prompt: 'phase0 durability', kind: 'plan' });
     if (!created.task?.id || created.task.status !== 'pending') throw new Error('create task');
+    const retryable = await first.createTask({ prompt: 'retry after local failure', kind: 'plan', workspace: fileWs });
+    await first.append({ type: 'task.status', taskId: retryable.task.id, payload: { status: 'failed', error: 'temporary model failure' } });
+    const retried = await first.setTaskStatus(retryable.task.id, 'retry');
+    if (retried.status !== 'pending' || retried.retryCount !== 1 || retried.error !== undefined) throw new Error(`task retry ${JSON.stringify(retried)}`);
+    await first.append({ type: 'task.status', taskId: retryable.task.id, payload: { status: 'failed', error: 'temporary model failure' } });
+    await first.setTaskStatus(retryable.task.id, 'retry');
+    await first.append({ type: 'task.status', taskId: retryable.task.id, payload: { status: 'failed', error: 'temporary model failure' } });
+    const finalRetry = await first.setTaskStatus(retryable.task.id, 'retry');
+    if (finalRetry.retryCount !== 3 || finalRetry.status !== 'pending') throw new Error(`task retry cap ${JSON.stringify(finalRetry)}`);
+    await first.append({ type: 'task.status', taskId: retryable.task.id, payload: { status: 'failed', error: 'temporary model failure' } });
+    let retryCapRejected = false;
+    try { await first.setTaskStatus(retryable.task.id, 'retry'); } catch (error) { retryCapRejected = error.statusCode === 409; }
+    if (!retryCapRejected) throw new Error('task retry cap was not enforced');
+    pass('failed tasks retry with durable bounded attempts');
     const gated = await first.createTask({ prompt: 'send a draft', kind: 'send' });
     if (gated.policy !== 'require_approval' || !gated.approval?.taskId || !gated.approval?.actionId) throw new Error('bound approval');
     const second = await openStore({ dataDir });

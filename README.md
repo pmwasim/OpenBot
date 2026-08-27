@@ -20,6 +20,7 @@ OpenBot is a free, open-source, local-first bot that turns a task into bounded, 
 - Incremental task activity feed: the API exposes a bounded event offset and the dashboard shows the latest activity while pending, running, or approval-bound work is active.
 - Dashboard task control: pause, resume, and cancel are available from recent-task cards and use the same durable state transitions as the API and CLI.
 - Cooperative task stopping: the agent rechecks durable pause/cancel state between model and action boundaries and will not claim completion after operator cancellation.
+- Bounded failed-task recovery: failed tasks can be retried from the dashboard, API, or CLI up to three times, with each retry recorded durably and without reusing an approval.
 - In-flight cancellation: the daemon propagates task stops to local model requests, shell children, and browser fetches while retaining durable audit state.
 - Race-safe task startup: new and pending tasks are claimed before execution so cancellation cannot be overwritten by a late controller start.
 - In-flight worker cancellation is covered end to end through the daemon, including cancellation during model work and child-process cleanup.
@@ -66,6 +67,7 @@ node cli/openbot.mjs connector list --json
 node cli/openbot.mjs connector update <connector-id> --disabled --json
 node cli/openbot.mjs memory update <memory-id> --value "Concise and clear" --json
 node cli/openbot.mjs resume <task-id> --json
+node cli/openbot.mjs retry <task-id> --json
 node cli/openbot.mjs skill add --name release-check --instructions "Review tests and report release risks." --json
 node cli/openbot.mjs skill update <skill-id> --instructions "Review tests, report risks, and cite evidence." --json
 node cli/openbot.mjs routine add --title "Workspace review" --schedule "daily 09:30" --workspace /path/to/project "Review the workspace and report risks." --json
@@ -102,6 +104,8 @@ The current release is a real local bot loop with durable named bots, persistent
 Add `--daemon` to `chat`, `list`, `show`, `logs`, `approve`, `reject`, `pause`, `resume`, `cancel`, `memory`, `skill`, `bot`, or `routine` after starting the daemon to use the shared local HTTP service. This keeps task, approval, audit history, routines, bots, skills, memory, and dashboard state in the daemon process; the CLI does not need a second populated local store for those commands. The optional `OPENBOT_DAEMON_URL` environment variable selects an explicitly configured daemon endpoint; when LAN access is enabled, `OPENBOT_AUTH_TOKEN` is sent as its bearer credential.
 
 Use `bot history <bot-id> --query <text>` to search a named bot's recent durable messages. The same bounded search is available in the dashboard and at `GET /api/bots/:id/messages?q=<text>`.
+
+Use `retry <task-id>` only for a task in `failed` state. OpenBot clears the prior outcome, records a bounded retry attempt, and starts the same task again; consequential actions still require a fresh matching approval.
 
 Use `node cli/openbot.mjs desktop` when you want a one-command graphical entry point. It starts or reuses the detached daemon and opens the dashboard with the platform's existing browser launcher. `--no-open` starts the daemon and prints the URL without launching a browser.
 

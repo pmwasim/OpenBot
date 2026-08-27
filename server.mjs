@@ -537,6 +537,18 @@ const app = http.createServer(async (req, res) => {
       activeTaskControllers.get(taskId)?.abort();
       return json(res, 200, { task: updated });
     }
+    if (url.pathname.startsWith('/api/tasks/') && url.pathname.endsWith('/retry') && req.method === 'POST') {
+      const taskId = decodeURIComponent(url.pathname.slice('/api/tasks/'.length, -'/retry'.length));
+      const task = await store.getTask(taskId);
+      if (!task) return json(res, 404, { error: 'Task not found' });
+      if (task.status !== 'failed') return json(res, 409, { error: `Task is not retryable from status "${task.status}".` });
+      if (activeTaskControllers.has(taskId)) return json(res, 409, { error: 'Task is already running.' });
+      const payload = await body(req);
+      if (payload.provider && payload.provider !== task.provider) return json(res, 409, { error: 'Task provider does not match the requested provider.' });
+      await store.setTaskStatus(taskId, 'retry');
+      void runTaskInBackground({ ...task, model: payload.model, provider: task.provider, maxTurns: payload.maxTurns, approvalId: payload.approvalId, skill: payload.skill || task.skill, botId: payload.botId || task.botId, recordBotConversation: false });
+      return json(res, 202, { taskId, status: 'started', task: await store.getTask(taskId) });
+    }
     if (url.pathname.startsWith('/api/tasks/') && url.pathname.endsWith('/run') && req.method === 'POST') {
       const taskId = decodeURIComponent(url.pathname.slice('/api/tasks/'.length, -'/run'.length));
       const task = await store.getTask(taskId);

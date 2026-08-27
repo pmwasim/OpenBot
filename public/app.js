@@ -683,6 +683,11 @@ function renderState(state, taskResponse = {}) {
       resume.addEventListener('click', () => resumeTask(taskItem, resume));
       card.append(resume);
     }
+    if (taskStatus === 'failed' && Number(taskItem.retryCount || 0) < 3) {
+      const retry = element('button', 'text', `Retry (${Number(taskItem.retryCount || 0)}/3)`);
+      retry.addEventListener('click', () => retryTask(taskItem, retry));
+      card.append(retry);
+    }
     if (['pending', 'running', 'waiting_approval'].includes(taskStatus)) {
       const pause = element('button', 'text', 'Pause');
       pause.addEventListener('click', () => controlTask(taskItem, 'pause', pause));
@@ -730,6 +735,24 @@ async function resumeTask(taskItem, button) {
   const data = await response.json();
   addMessage(response.ok ? 'bot' : 'error', 'OpenBot', data.reply || data.error || data.status || 'Task recovery finished.');
   await load();
+}
+
+async function retryTask(taskItem, button) {
+  button.disabled = true;
+  try {
+    const response = await fetch(`/api/tasks/${encodeURIComponent(taskItem.id)}/retry`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ provider: taskItem.provider || 'local-model', model: providerSelect.value === (taskItem.provider || 'local-model') ? (modelSelect.value || modelName || undefined) : undefined })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Task retry failed.');
+    addMessage('bot', 'OpenBot', 'Retry started.');
+    await load();
+  } catch (error) {
+    addMessage('error', 'OpenBot', error.message || 'Task retry failed.');
+    button.disabled = false;
+  }
 }
 
 async function controlTask(taskItem, action, button) {

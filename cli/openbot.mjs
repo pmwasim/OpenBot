@@ -15,7 +15,7 @@ import { daemonStatus, startDaemon, stopDaemon } from '../lib/daemon.mjs';
 import { launchDesktop } from '../lib/desktop.mjs';
 import { installService, serviceInfo, uninstallService } from '../lib/service.mjs';
 import {
-  daemonBot, daemonBotMessages, daemonBots, daemonChat, daemonConnectors, daemonControlTask, daemonCreateBot, daemonCreateConnector, daemonCreateMemory, daemonCreateRoutine, daemonCreateSkill, daemonCreateTask, daemonRunTask, daemonTaskArtifacts, daemonTaskEvents, daemonTaskResult, daemonUpdateBot, daemonUpdateConnector,
+  daemonBot, daemonBotMessages, daemonBots, daemonChat, daemonConnectors, daemonControlTask, daemonCreateBot, daemonCreateConnector, daemonCreateMemory, daemonCreateRoutine, daemonCreateSkill, daemonCreateTask, daemonRetryTask, daemonRunTask, daemonTaskArtifacts, daemonTaskEvents, daemonTaskResult, daemonUpdateBot, daemonUpdateConnector,
   daemonDecideApproval, daemonDeleteBot, daemonDeleteConnector, daemonDeleteMemory, daemonDeleteSkill, daemonList, daemonLogs, daemonMemories, daemonResume, daemonUpdateMemory,
   daemonRoutine, daemonRoutines, daemonRunRoutine, daemonShow, daemonSkill, daemonSkills, daemonState, daemonUpdateRoutine, daemonUpdateSkill
 } from '../lib/client.mjs';
@@ -43,6 +43,7 @@ Commands:
   pause <task-id>    Pause a task
   cancel <task-id>   Cancel a task
   resume <task-id>   Resume a paused task
+  retry <task-id>    Retry a failed task (up to three times)
   logs [task-id]     Show event log
   result <task-id>   Show a concise structured task result
   artifacts <task-id> List files produced by a task
@@ -801,6 +802,25 @@ async function main() {
       fail(Object.assign(new Error(`Cannot resume a task in status "${task.status}".`), { exitCode: 1 }));
     }
     await runAgent(store, config, { ...flags, provider: flags.provider || task.provider, taskId: id, workspace: task.workspace, bot: task.botId, skill: flags.skill || task.skill, json: asJson }, task.prompt);
+    return;
+  }
+
+  if (command === 'retry') {
+    const id = positional[1];
+    if (!id) fail(Object.assign(new Error('Task id is required.'), { exitCode: 1 }));
+    if (flags.daemon) {
+      const remote = await daemonShow(config, id);
+      if (remote.task?.status !== 'failed') fail(Object.assign(new Error(`Cannot retry a task in status "${remote.task?.status}".`), { exitCode: 1 }));
+      const result = await daemonRetryTask(config, id, { model: flags.model || undefined });
+      if (asJson) print(result, true);
+      else print(result.reply || `${result.status}`);
+      return;
+    }
+    const task = await store.getTask(id);
+    if (!task) fail(Object.assign(new Error('Task not found'), { exitCode: 1 }));
+    if (task.status !== 'failed') fail(Object.assign(new Error(`Cannot retry a task in status "${task.status}".`), { exitCode: 1 }));
+    await store.setTaskStatus(id, 'retry');
+    await runAgent(store, config, { ...flags, provider: task.provider, taskId: id, workspace: task.workspace, bot: task.botId, skill: flags.skill || task.skill, json: asJson }, task.prompt);
     return;
   }
 

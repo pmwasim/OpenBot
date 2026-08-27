@@ -20,4 +20,6 @@ Local skills are declarative operator-owned text, not executable plugins. Skill 
 
 Named-bot conversation search accepts only a bounded text query, filters the bot's already bounded message history, and returns the same redacted message fields as ordinary history. It does not search other bots, task events, or workspace files.
 
+Failed-task retry is limited to terminally failed tasks and three attempts. It creates a durable `task.retry` event, clears only the prior task outcome, and does not carry forward a consumed approval; consequential actions therefore return to the normal fresh approval boundary on retry.
+
 Resource selection is local configuration only. `OPENBOT_RESOURCE_PROFILE=auto` chooses the bounded `legacy` profile at 2 or fewer logical CPUs or below 8 GiB RAM; otherwise it chooses `standard`. The selected profile changes agent turn/action/context limits and defaults isolation to host-local mode for the low-resource profile. Operators can explicitly set `legacy`, `standard`, or `OPENBOT_ISOLATION`; this setting does not install software, contact a remote service, or guarantee local-model performance.

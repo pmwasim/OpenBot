@@ -103,6 +103,7 @@ The first meaningful “bot, not control panel” milestone is implemented on th
 - Operators can inspect redacted effective daemon, provider, privacy, resource, and agent-limit settings from the dashboard; changes remain environment-configured and restart-controlled.
 - Operators can open or download a fixed-name JSON task artifact from each recent-task card; the artifact contains only that task's bounded record and redacted durable event history.
 - Operators can search a named bot's bounded durable conversation by message text from the dashboard, API, or CLI without exposing unscoped task history.
+- Operators can retry a failed task from the dashboard, API, or CLI up to three times without changing its task identity or silently reusing a consequential-action approval.
 - Operators can preview a task result in the dashboard or read `/api/tasks/:id/result` for a concise, redacted outcome and bounded action summary without loading the full audit history.
 - CLI operators can read the same concise result contract locally or through the shared daemon with `result <task-id>` and `result --daemon <task-id>`; text, arguments, action results, and action count remain bounded.
 - Operators can inspect a typed inventory of files actually produced by successful task actions and preview one selected workspace-relative artifact through the bounded API route or dashboard/CLI links; proposed or failed targets are not inventoried.
@@ -125,6 +126,7 @@ The first meaningful “bot, not control panel” milestone is implemented on th
 - Operators can update workspace-scoped memory facts through the local or shared-daemon CLI path without changing the originating workspace scope.
 - Operators can edit bot role/instructions, local skill definitions, and workspace-scoped memory facts from the dashboard without losing durable identity, bot/routine references, or memory scope.
 - Operators can pause, resume, or cancel controllable tasks from recent-task dashboard cards, with durable status transitions and refreshed activity history.
+- Failed tasks can be retried through the API, CLI, or dashboard with a durable retry count capped at three; retrying clears the stale outcome and requires fresh approval for consequential actions.
 - The agent loop rechecks durable operator control state at model/action boundaries and does not claim completion after a task is paused or cancelled.
 - The daemon propagates pause/cancel signals to in-flight local model, shell, and browser operations where the underlying runtime supports cancellation.
 - New and pending tasks are claimed before controller execution, preventing a concurrent pause/cancel request from being overwritten by late startup state.
