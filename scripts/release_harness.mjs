@@ -116,6 +116,7 @@ async function main() {
   const configSource = await readFile(join(root, 'lib/config.mjs'), 'utf8');
   const queueSource = await readFile(join(root, 'lib/task-queue.mjs'), 'utf8');
   const skillPackSource = await readFile(join(root, 'lib/skill-packs.mjs'), 'utf8');
+  const storeSource = await readFile(join(root, 'lib/store.mjs'), 'utf8');
   const policySource = await readFile(join(root, 'lib/policy.mjs'), 'utf8');
   const browserSource = await readFile(join(root, 'lib/workers/browser.mjs'), 'utf8');
   const engineSource = await readFile(join(root, 'lib/engine.mjs'), 'utf8');
@@ -128,6 +129,8 @@ async function main() {
   pass('daemon task execution uses a bounded resource-aware queue');
   if (!serverSource.includes('/api/skills/export') || !serverSource.includes('/api/skills/import') || !cliSource.includes("subcommand === 'export'") || !cliSource.includes("subcommand === 'import'") || !clientSource.includes('daemonExportSkills') || !clientSource.includes('daemonImportSkills') || !appSource.includes('skill-pack-file') || !appSource.includes('skill-pack-import') || !skillPackSource.includes('SKILL_PACK_LIMITS')) throw new Error('versioned skill packs are not exposed across clients');
   pass('versioned declarative skill packs are exposed across clients');
+  if (!serverSource.includes('recordBotMessages') || !storeSource.includes('recordBotMessages')) throw new Error('named bot conversation writes are not atomic');
+  pass('named bot conversation writes are atomic across async completion');
   if (appSource.includes('e.innerHTML=`')) throw new Error('dashboard renders state with unsafe innerHTML');
   pass('dashboard exposes workspace, action cards, structured results, audit links, and downloadable task artifacts safely');
   if (!appSource.includes('editMemory') || !appSource.includes('editSkill') || !appSource.includes('editBot') || !appSource.includes('editConnector') || !appSource.includes("method: 'PATCH'") || !appSource.includes('Cancel') || !appSource.includes('Edit')) throw new Error('dashboard does not expose safe editing for bots, skills, memory, and connectors');

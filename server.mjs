@@ -163,12 +163,10 @@ async function runAgentTask({ taskId, prompt, workspace, model, providerName, ma
     });
     const result = await controller.run({ taskId, prompt: selectedPrompt, workspace: selectedWorkspace, model, approvalId, skill, bot, signal: abortController.signal });
     if (bot && (isNewTask || recordBotConversation)) {
-      await store.recordBotMessage(bot.id, { role: 'user', content: selectedPrompt, taskId });
-      await store.recordBotMessage(bot.id, {
-        role: 'assistant',
-        content: result.reply || (result.status === 'waiting_approval' ? 'Waiting for approval before continuing.' : `Task stopped with status: ${result.status}.`),
-        taskId: result.taskId
-      });
+      await store.recordBotMessages(bot.id, [
+        { role: 'user', content: selectedPrompt, taskId },
+        { role: 'assistant', content: result.reply || (result.status === 'waiting_approval' ? 'Waiting for approval before continuing.' : `Task stopped with status: ${result.status}.`), taskId: result.taskId }
+      ]);
     }
     return { botId: bot?.id || null, ...result };
   } finally {

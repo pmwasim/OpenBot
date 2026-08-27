@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.38 — 2026-08-27
+
+Hardened asynchronous named-bot conversation durability.
+
+- Commit the user and assistant messages for an asynchronous named-bot task as one bounded store operation.
+- Prevent an immediate history read after task completion from observing only half of the conversation exchange.
+- Preserve local-first operation, zero mandatory spend, old-laptop portability, approval boundaries, and brand-neutral public surfaces.
+
 ## 0.4.37 — 2026-08-27
 
 Added portable, versioned declarative skill packs.

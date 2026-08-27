@@ -123,6 +123,7 @@ The first meaningful “bot, not control panel” milestone is implemented on th
 - Operators can launch or reuse the local daemon and open the dashboard with one lightweight desktop command; headless mode reports the URL without requiring a graphical shell.
 - Operators can optionally install or remove a per-user macOS or Linux daemon service, previewing the manifest with dry-run mode while retaining the portable detached fallback.
 - Operators can update named bot profiles through the local or shared-daemon CLI path without losing conversation history or task associations.
+- Asynchronous named-bot tasks commit each completed user/assistant exchange atomically, keeping task completion and conversation history consistent for immediate reads.
 - Operators can update reusable local skills through the local or shared-daemon CLI path without losing the durable skill identity selected by bots or routines.
 - Operators can export and import versioned declarative skill packs through the dashboard, API, or CLI; packs are size-limited, redacted, duplicate-safe, and cannot carry executable code, tools, or permissions.
 - Operators can update workspace-scoped memory facts through the local or shared-daemon CLI path without changing the originating workspace scope.

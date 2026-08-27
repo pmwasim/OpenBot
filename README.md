@@ -16,6 +16,7 @@ OpenBot is a free, open-source, local-first bot that turns a task into bounded, 
 - Portable skill packs can be exported or imported as versioned, bounded JSON from the dashboard, API, or CLI; imports are declarative, redacted, duplicate-safe, and never executable extensions.
 - Durable named local bots with a role, instructions, workspace, optional skill, and bounded conversation history managed from the dashboard, API, or CLI.
 - Named bot profiles can be edited from the dashboard or CLI, including role and instructions in the dashboard and workspace or selected skill through CLI, without losing profile history.
+- Asynchronous named-bot completion records the user/assistant conversation pair under one durable store lock, so completed-task reads cannot observe a half-written exchange.
 - Local routines managed from the dashboard, API, or CLI; schedules are explicit, runs are durable, and Run now uses the same approval-safe agent loop.
 - Portable daemon lifecycle: run OpenBot in the foreground or detach it into a local background process with status, duplicate-start protection, clean stop, and a data-directory log.
 - Incremental task activity feed: the API exposes a bounded event offset and the dashboard shows the latest activity while pending, running, or approval-bound work is active.
