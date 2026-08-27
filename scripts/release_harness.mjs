@@ -86,10 +86,17 @@ async function main() {
   }
   const indexSource = await readFile(join(root, 'public/index.html'), 'utf8');
   const appSource = await readFile(join(root, 'public/app.js'), 'utf8');
-  if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"') || !indexSource.includes('id="recent-tasks"') || !indexSource.includes('id="memories"') || !indexSource.includes('id="memory-form"') || !indexSource.includes('id="skills"') || !indexSource.includes('id="skill-form"') || !indexSource.includes('id="routine-form"') || !indexSource.includes('id="routine-schedule"')) throw new Error('dashboard is missing workspace, task history, memory, skill, or routine controls');
-  if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('/api/routines') || !appSource.includes('Run now') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, resume, task history, memory, skills, routines, and audit links');
+  if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"') || !indexSource.includes('id="recent-tasks"') || !indexSource.includes('id="memories"') || !indexSource.includes('id="memory-form"') || !indexSource.includes('id="skills"') || !indexSource.includes('id="skill-form"') || !indexSource.includes('id="routine-form"') || !indexSource.includes('id="routine-schedule"') || !indexSource.includes('id="bot"') || !indexSource.includes('id="bot-form"') || !indexSource.includes('id="bot-name"')) throw new Error('dashboard is missing workspace, bot, task history, memory, skill, or routine controls');
+  if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('/api/routines') || !appSource.includes('/api/bots') || !appSource.includes('Run now') || !appSource.includes('botId') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, resume, task history, memory, skills, routines, bots, and audit links');
   if (appSource.includes('e.innerHTML=`')) throw new Error('dashboard renders state with unsafe innerHTML');
   pass('dashboard exposes workspace, action cards, and audit links safely');
+  const publicSurfaceFiles = ['README.md', 'PRD.md', 'SECURITY.md', 'CHANGELOG.md', 'cli/openbot.mjs', 'server.mjs', 'lib/config.mjs', 'lib/provider.mjs', 'lib/agent.mjs', 'lib/store.mjs', 'public/index.html', 'public/app.js', 'public/styles.css'];
+  const forbiddenPublicBrand = /\b(?:Grok|Ollama|OpenAI|Anthropic|Gemini|Claude|Cursor|Groq)\b|x\.ai/i;
+  for (const file of publicSurfaceFiles) {
+    const source = await readFile(join(root, file), 'utf8');
+    if (forbiddenPublicBrand.test(source.replace(/\bcursor\s*:/gi, ''))) throw new Error(`public brand reference in ${file}`);
+  }
+  pass('public repository surfaces are brand-neutral');
 
   const { decide, REQUIRE_APPROVAL_KINDS } = await import(pathToFileURL(join(root, 'lib/policy.mjs')).href);
   for (const kind of REQUIRE_APPROVAL_KINDS) {
@@ -125,18 +132,18 @@ async function main() {
   if (!hasBearerToken({ headers: { authorization: 'Bearer local-secret' } }, 'local-secret') || hasBearerToken({ headers: { authorization: 'Bearer wrong' } }, 'local-secret')) throw new Error('bearer auth helper');
   pass('loopback bind is refused unless explicitly overridden');
 
-  const { createProviderHub, redactSecrets, createOpenAICompatibleAdapter } = await import(pathToFileURL(join(root, 'lib/provider.mjs')).href);
-  const hub = createProviderHub({ OPENBOT_OPENAI_API_KEY: 'sk-secret-value' });
-  if (!hub.localOnly || hub.ollama.baseUrl !== 'http://127.0.0.1:11434') throw new Error('ollama default');
-  if (createOpenAICompatibleAdapter().enabled) throw new Error('openai should be disabled');
+  const { createProviderHub, redactSecrets, createRemoteCompatibleAdapter } = await import(pathToFileURL(join(root, 'lib/provider.mjs')).href);
+  const hub = createProviderHub({ OPENBOT_REMOTE_API_KEY: 'sk-secret-value' });
+  if (!hub.localOnly || hub.localModel.baseUrl !== 'http://127.0.0.1:11434') throw new Error('local model default');
+  if (createRemoteCompatibleAdapter().enabled) throw new Error('remote-compatible provider should be disabled');
   const redacted = redactSecrets({ apiKey: 'sk-secret-value', model: 'local' });
   if (redacted.apiKey !== '[redacted]' || redacted.model !== 'local') throw new Error('redact');
   if (JSON.stringify(hub.describe()).includes('sk-secret-value')) throw new Error('secret leaked');
-  let remoteOllamaRejected = false;
-  try { createProviderHub({ OPENBOT_OLLAMA_URL: 'http://example.com:11434' }); } catch { remoteOllamaRejected = true; }
-  if (!remoteOllamaRejected) throw new Error('remote Ollama should require opt-in');
-  if (!createProviderHub({ OPENBOT_LOCAL_ONLY: '0', OPENBOT_OLLAMA_URL: 'http://example.com:11434' }).ollama.baseUrl.includes('example.com')) throw new Error('explicit remote Ollama opt-in');
-  pass('provider hub defaults to local Ollama and redacts secrets');
+  let remoteModelRejected = false;
+  try { createProviderHub({ OPENBOT_MODEL_URL: 'http://example.com:11434' }); } catch { remoteModelRejected = true; }
+  if (!remoteModelRejected) throw new Error('remote model endpoint should require opt-in');
+  if (!createProviderHub({ OPENBOT_LOCAL_ONLY: '0', OPENBOT_MODEL_URL: 'http://example.com:11434' }).localModel.baseUrl.includes('example.com')) throw new Error('explicit remote model opt-in');
+  pass('provider hub defaults to the local model and redacts secrets');
 
   const { loadConfig, publicConfig } = await import(pathToFileURL(join(root, 'lib/config.mjs')).href);
   const legacyConfig = loadConfig({ OPENBOT_RESOURCE_PROFILE: 'legacy' });
@@ -268,6 +275,13 @@ async function main() {
     await freshStore.deleteSkill(savedSkill.skill.id);
     if ((await freshStore.listSkills()).length !== 0) throw new Error('skill deletion');
     pass('local skills are durable, redacted, explicitly addressable, and removable');
+    const savedBot = await freshStore.createBot({ name: 'Release steward', role: 'Review local releases', instructions: 'Check tests, summarize risks, and never publish without approval.', workspace: '/tmp/agent-harness' });
+    if (!savedBot.bot?.id || savedBot.bot.name !== 'Release steward' || savedBot.bot.workspace !== '/tmp/agent-harness') throw new Error('bot creation');
+    await freshStore.recordBotMessage(savedBot.bot.id, { role: 'user', content: 'Review the workspace.', taskId: 'task-bot-1' });
+    await freshStore.recordBotMessage(savedBot.bot.id, { role: 'assistant', content: 'I will review it.', taskId: 'task-bot-1' });
+    const reopenedBot = await (await openStore({ dataDir: freshDataDir })).getBot(savedBot.bot.id);
+    if (!reopenedBot || reopenedBot.messages.length !== 2 || reopenedBot.messages[0].role !== 'user') throw new Error('bot persistence or conversation history');
+    pass('named bots persist bounded profiles and conversation history');
     if (parseRoutineSchedule('every 15m').intervalMs !== 900000 || parseRoutineSchedule('daily 09:30').hour !== 9) throw new Error('routine schedule parser');
     let invalidRoutineSchedule = false;
     try { parseRoutineSchedule('hourly'); } catch (error) { invalidRoutineSchedule = error.statusCode === 400; }
@@ -339,6 +353,13 @@ async function main() {
     const cliSkillDelete = await runNode(['cli/openbot.mjs', 'skill', 'delete', cliSkillId, '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
     if (cliSkillDelete.code !== 0) throw new Error(`CLI skill delete: ${cliSkillDelete.output}`);
     pass('CLI skill add/list/delete manages reusable local instructions');
+    const cliBotAdd = await runNode(['cli/openbot.mjs', 'bot', 'add', '--name', 'CLI steward', '--role', 'Review local work', '--instructions', 'Review tests and report risks.', '--workspace', fileWs, '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
+    const cliBotAddJson = parseCliJson(cliBotAdd.output);
+    if (cliBotAdd.code !== 0 || !cliBotAddJson.bot?.id || cliBotAddJson.bot.name !== 'CLI steward') throw new Error(`CLI bot add: ${cliBotAdd.output}`);
+    const cliBotList = await runNode(['cli/openbot.mjs', 'bot', 'list', '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
+    const cliBotListJson = parseCliJson(cliBotList.output);
+    if (cliBotList.code !== 0 || !cliBotListJson.bots?.some((bot) => bot.id === cliBotAddJson.bot.id && bot.messageCount === 0)) throw new Error(`CLI bot list: ${cliBotList.output}`);
+    pass('CLI bot add/list manages named local profiles');
     const legacyDoctor = await runNode(['cli/openbot.mjs', 'doctor', '--json'], {
       OPENBOT_DATA_DIR: dataDir,
       OPENBOT_RESOURCE_PROFILE: 'legacy',
@@ -359,6 +380,7 @@ async function main() {
         PORT: String(port),
         OPENBOT_DATA_DIR: dataDir,
         OPENBOT_TEST_AGENT_RESPONSES: JSON.stringify([
+          JSON.stringify({ reply: 'The named bot completed the review.' }),
           JSON.stringify({ action: { tool: 'file.read', args: { path: 'notes.txt' } } }),
           JSON.stringify({ reply: 'The notes are ready.' }),
           JSON.stringify({ action: { tool: 'file.write', args: { path: 'notes.txt', contents: 'changed by agent\n' } } }),
@@ -381,11 +403,22 @@ async function main() {
       if (health.status !== 200) throw new Error(`health status ${health.status} ${output}`); pass('health endpoint responds');
       const state = await http('/api/state');
       const parsed = JSON.parse(state.body);
-      if (state.status !== 200 || !parsed.approvals) throw new Error('invalid state');
+      if (state.status !== 200 || !parsed.approvals || !Array.isArray(parsed.bots)) throw new Error('invalid state');
       pass('state endpoint responds with approvals');
-      const routineCreate = await http('/api/routines', { method: 'POST', body: JSON.stringify({ title: 'Nightly review', schedule: 'daily 23:00', prompt: 'Review the workspace and report risks.', workspace: agentWs }) });
+      const botCreate = await http('/api/bots', { method: 'POST', body: JSON.stringify({ name: 'Release steward', role: 'Review local releases', instructions: 'Check tests, summarize risks, and never publish without approval.', workspace: agentWs }) });
+      const botCreateBody = JSON.parse(botCreate.body);
+      if (botCreate.status !== 200 || !botCreateBody.bot?.id || botCreateBody.bot.name !== 'Release steward') throw new Error(`bot create ${botCreate.status} ${botCreate.body}`);
+      const botList = await http('/api/bots');
+      if (botList.status !== 200 || !JSON.parse(botList.body).bots.some((item) => item.id === botCreateBody.bot.id)) throw new Error(`bot list ${botList.status} ${botList.body}`);
+      pass('bot API creates and lists durable named profiles');
+      const botChat = await http(`/api/bots/${encodeURIComponent(botCreateBody.bot.id)}/chat`, { method: 'POST', body: JSON.stringify({ message: 'Review the workspace.', model: 'fixture' }) });
+      const botChatBody = JSON.parse(botChat.body);
+      const botAfterChat = JSON.parse((await http(`/api/bots/${encodeURIComponent(botCreateBody.bot.id)}`)).body).bot;
+      if (botChat.status !== 200 || botChatBody.status !== 'completed' || botChatBody.botId !== botCreateBody.bot.id || botAfterChat.messages?.length !== 2 || botAfterChat.messages?.[1]?.role !== 'assistant') throw new Error(`bot chat ${botChat.status} ${botChat.body}`);
+      pass('bot chat uses the named profile and persists a bounded conversation');
+      const routineCreate = await http('/api/routines', { method: 'POST', body: JSON.stringify({ title: 'Nightly review', schedule: 'daily 23:00', prompt: 'Review the workspace and report risks.', workspace: agentWs, botId: botCreateBody.bot.id }) });
       const routineCreateBody = JSON.parse(routineCreate.body);
-      if (routineCreate.status !== 200 || !routineCreateBody.routine?.id || !routineCreateBody.routine.nextRunAt) throw new Error(`routine create ${routineCreate.status} ${routineCreate.body}`);
+      if (routineCreate.status !== 200 || !routineCreateBody.routine?.id || routineCreateBody.routine.botId !== botCreateBody.bot.id || !routineCreateBody.routine.nextRunAt) throw new Error(`routine create ${routineCreate.status} ${routineCreate.body}`);
       const routineList = await http('/api/routines');
       if (routineList.status !== 200 || !JSON.parse(routineList.body).routines.some((item) => item.id === routineCreateBody.routine.id)) throw new Error(`routine list ${routineList.status} ${routineList.body}`);
       pass('routine API creates and lists durable local schedules');

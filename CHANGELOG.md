@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.7 — 2026-08-27
+
+Added durable named local bots.
+
+- Create, list, chat with, and delete named bot profiles from the dashboard, HTTP API, or CLI.
+- Persist each bot's role, instructions, workspace, optional skill, and bounded conversation history locally.
+- Connect routines and tasks to a named bot while preserving workspace checks, approval gates, and audit history.
+- Keep provider labels and configuration language neutral across public code, documentation, CLI output, and dashboard copy.
+- Expanded the release harness with bot persistence, API, CLI, and public brand-neutrality checks.
+
 ## 0.3.6 — 2026-08-27
 
 Hardened host-mode file access against symlink replacement races.

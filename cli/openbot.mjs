@@ -29,11 +29,15 @@ Commands:
   resume <task-id>   Resume a paused task
   logs [task-id]     Show event log
   export <task-id>   Export an append-only audit bundle
-  doctor             Check loopback, Ollama, store, and isolation
+  doctor             Check loopback, local model, store, and isolation
   config             Show local configuration
   memory list        List workspace-scoped local memory
   memory add         Save an operator-approved memory fact
   memory delete      Delete a local memory fact
+  bot list           List named local bots
+  bot add            Create a named local bot
+  bot chat <id>      Chat with a named local bot
+  bot delete <id>    Delete a named local bot
   skill list         List reusable local skills
   skill add          Save an operator-approved local skill
   skill delete       Delete a local skill
@@ -46,13 +50,15 @@ Commands:
 Options:
   --json             Print machine-readable JSON
   --kind <kind>      Task or action kind (plan, file.write, shell.exec, browser.visit, ...)
-  --model <name>     Local Ollama model (defaults to the first installed model)
+  --model <name>     Local model name (defaults to the first installed model)
   --key <name>       Memory key for memory add
   --value <text>     Memory value for memory add
   --name <name>      Skill name for skill add
+  --role <text>      Bot role for bot add
   --description <t>  Skill description for skill add
   --instructions <t> Skill instructions for skill add
   --skill <name>     Select a local skill for chat
+  --bot <id>         Select a named local bot
   --schedule <value> Routine schedule (every 15m or daily 09:30)
   --workspace <dir>  Task workspace directory
   --task <id>        Task id for propose
@@ -84,9 +90,11 @@ const VALUE_FLAGS = {
   '--key': 'key',
   '--value': 'value',
   '--name': 'name',
+  '--role': 'role',
   '--description': 'description',
   '--instructions': 'instructions',
   '--skill': 'skill',
+  '--bot': 'bot',
   '--schedule': 'schedule'
 };
 
@@ -190,21 +198,24 @@ function fixtureAgentProvider(raw) {
 
 async function runAgent(store, config, flags, prompt, options = {}) {
   if (!prompt) fail(Object.assign(new Error('chat requires a prompt.'), { exitCode: 1 }));
-  if (!flags.workspace || flags.workspace === 'local') fail(Object.assign(new Error('Workspace is required (--workspace).'), { exitCode: 1 }));
+  const bot = flags.bot ? await store.getBot(flags.bot) : null;
+  if (flags.bot && !bot) fail(Object.assign(new Error('Bot not found.'), { exitCode: 1 }));
+  const workspace = flags.workspace || bot?.workspace;
+  if (!workspace || workspace === 'local') fail(Object.assign(new Error('Workspace is required (--workspace) or provided by the bot.'), { exitCode: 1 }));
 
   const fixture = Boolean(process.env.OPENBOT_TEST_AGENT_RESPONSES);
-  const hub = createProviderHub(process.env, { ollamaUrl: config.ollamaUrl });
+  const hub = createProviderHub(process.env, { modelUrl: config.modelUrl, remoteBaseUrl: config.remoteBaseUrl });
   let model = flags.model || '';
-  let provider = hub.ollama;
+  let provider = hub.localModel;
   if (fixture) {
     provider = fixtureAgentProvider(process.env.OPENBOT_TEST_AGENT_RESPONSES);
   } else {
     let tags;
     try { tags = await provider.tags(); }
-    catch (error) { fail(Object.assign(new Error(`Ollama is unavailable: ${error.message}`), { exitCode: 1 })); }
-    if (!tags.ok) fail(Object.assign(new Error('Ollama is unavailable. Start Ollama, then install a local model.'), { exitCode: 1 }));
+    catch (error) { fail(Object.assign(new Error(`Local model runtime is unavailable: ${error.message}`), { exitCode: 1 })); }
+    if (!tags.ok) fail(Object.assign(new Error('Local model runtime is unavailable. Start it, then install a local model.'), { exitCode: 1 }));
     model = model || tags.models[0] || '';
-    if (!model) fail(Object.assign(new Error('Ollama has no local model. Install one before using chat.'), { exitCode: 1 }));
+    if (!model) fail(Object.assign(new Error('The local model runtime has no model. Install one before using chat.'), { exitCode: 1 }));
     if (!tags.models.includes(model)) fail(Object.assign(new Error(`Requested model is not installed locally: ${model}`), { exitCode: 1 }));
   }
 
@@ -217,9 +228,17 @@ async function runAgent(store, config, flags, prompt, options = {}) {
     maxActions: config.agentMaxActions,
     maxContextChars: config.agentContextChars
   });
-  const result = await controller.run({ prompt, workspace: flags.workspace, taskId: flags.taskId, model, skill: flags.skill });
+  const result = await controller.run({ prompt, workspace, taskId: flags.taskId, model, skill: flags.skill, bot });
+  if (bot && !flags.taskId) {
+    await store.recordBotMessage(bot.id, { role: 'user', content: prompt, taskId: result.taskId });
+    await store.recordBotMessage(bot.id, {
+      role: 'assistant',
+      content: result.reply || (result.status === 'waiting_approval' ? 'Waiting for approval before continuing.' : `Task stopped with status: ${result.status}.`),
+      taskId: result.taskId
+    });
+  }
   if (options.printResult !== false) {
-    if (flags.json) print({ model: model || 'fixture', ...result }, true);
+    if (flags.json) print({ botId: bot?.id || null, model: model || 'fixture', ...result }, true);
     else print(result.reply || `${result.status}${result.approvals?.length ? `: approval ${result.approvals[0].id}` : ''}`);
     if (!['completed', 'waiting_approval'].includes(result.status)) process.exit(result.status === 'denied' ? 2 : 1);
   }
@@ -276,11 +295,11 @@ async function main() {
       checks.push({ name: 'loopback', ok: false, error: error.message, loopback: isLoopbackHost(config.host) });
     }
     try {
-      const hub = createProviderHub(process.env, { ollamaUrl: config.ollamaUrl });
-      const tags = await hub.ollama.tags();
-      checks.push({ name: 'ollama', ok: Boolean(tags.ok), models: tags.models || [], url: config.ollamaUrl });
+      const hub = createProviderHub(process.env, { modelUrl: config.modelUrl, remoteBaseUrl: config.remoteBaseUrl });
+      const tags = await hub.localModel.tags();
+      checks.push({ name: 'local-model', ok: Boolean(tags.ok), models: tags.models || [], url: config.modelUrl });
     } catch (error) {
-      checks.push({ name: 'ollama', ok: false, error: error.message, url: config.ollamaUrl });
+      checks.push({ name: 'local-model', ok: false, error: error.message, url: config.modelUrl });
     }
     try {
       const store = await openStore({ dataDir: config.dataDir });
@@ -341,6 +360,37 @@ async function main() {
     fail(Object.assign(new Error('Use memory list, memory add, or memory delete.'), { exitCode: 1 }));
   }
 
+  if (command === 'bot') {
+    const subcommand = positional[1];
+    if (subcommand === 'list') {
+      const bots = await store.listBots();
+      if (asJson) print({ bots }, true);
+      else if (!bots.length) print('No bots.');
+      else for (const bot of bots) console.log(`${bot.id}\t${bot.name}\t${bot.role || 'local bot'}\t${bot.messageCount || 0} messages`);
+      return;
+    }
+    if (subcommand === 'add') {
+      const created = await store.createBot({ name: flags.name || positional[2], role: flags.role, instructions: flags.instructions || positional.slice(3).join(' '), workspace: flags.workspace, skill: flags.skill });
+      print(created, true);
+      return;
+    }
+    if (subcommand === 'delete') {
+      const id = positional[2];
+      if (!id) fail(Object.assign(new Error('Bot id is required.'), { exitCode: 1 }));
+      print(await store.deleteBot(id), true);
+      return;
+    }
+    if (subcommand === 'chat') {
+      const id = positional[2];
+      if (!id) fail(Object.assign(new Error('Bot id is required.'), { exitCode: 1 }));
+      const bot = await store.getBot(id);
+      if (!bot) fail(Object.assign(new Error('Bot not found.'), { exitCode: 1 }));
+      await runAgent(store, config, { ...flags, bot: id, workspace: flags.workspace || bot.workspace }, positional.slice(3).join(' ').trim());
+      return;
+    }
+    fail(Object.assign(new Error('Use bot list, bot add, bot chat, or bot delete.'), { exitCode: 1 }));
+  }
+
   if (command === 'skill') {
     const subcommand = positional[1];
     if (subcommand === 'list') {
@@ -371,7 +421,7 @@ async function main() {
       return;
     }
     if (subcommand === 'add') {
-      const created = await store.createRoutine({ title: flags.title, schedule: flags.schedule, prompt: flags.prompt || positional.slice(2).join(' '), workspace: flags.workspace, skill: flags.skill });
+      const created = await store.createRoutine({ title: flags.title, schedule: flags.schedule, prompt: flags.prompt || positional.slice(2).join(' '), workspace: flags.workspace, skill: flags.skill, botId: flags.bot });
       print(created, true);
       return;
     }
@@ -388,7 +438,7 @@ async function main() {
       if (!routine) fail(Object.assign(new Error('Routine not found.'), { exitCode: 1 }));
       const scheduler = createRoutineScheduler({
         store,
-        runRoutine: async (item) => runAgent(store, config, { ...flags, workspace: item.workspace, skill: item.skill, json: true }, item.prompt, { printResult: false }),
+        runRoutine: async (item) => runAgent(store, config, { ...flags, workspace: item.workspace, skill: item.skill, bot: item.botId, json: true }, item.prompt, { printResult: false }),
         tickMs: 60_000
       });
       const result = await scheduler.runNow(id);

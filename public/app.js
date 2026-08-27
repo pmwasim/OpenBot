@@ -5,7 +5,10 @@ const workspace = document.querySelector('#workspace');
 const memoryForm = document.querySelector('#memory-form');
 const skillForm = document.querySelector('#skill-form');
 const routineForm = document.querySelector('#routine-form');
+const botForm = document.querySelector('#bot-form');
 const skillSelect = document.querySelector('#skill');
+const botSelect = document.querySelector('#bot');
+let botProfiles = new Map();
 let modelName = '';
 
 function element(tag, className, text) {
@@ -99,6 +102,30 @@ function renderSkills(skills) {
     container.append(card);
   }
   if ([...skillSelect.options].some((option) => option.value === selected)) skillSelect.value = selected;
+}
+
+function renderBots(bots) {
+  const container = document.querySelector('#bots');
+  const selected = botSelect.value;
+  botProfiles = new Map(bots.map((bot) => [bot.id, bot]));
+  botSelect.replaceChildren(element('option', '', 'Use the general local agent'));
+  container.replaceChildren();
+  for (const bot of bots) {
+    const option = element('option', '', bot.name);
+    option.value = bot.id;
+    botSelect.append(option);
+    const card = element('div', 'health memory-card');
+    const details = element('div');
+    details.append(element('b', '', bot.name), element('small', '', `${bot.role || 'Local bot'} · ${bot.messageCount || 0} messages`));
+    const remove = element('button', 'text', 'Delete');
+    remove.addEventListener('click', async () => {
+      await fetch(`/api/bots/${encodeURIComponent(bot.id)}`, { method: 'DELETE' });
+      await load();
+    });
+    card.append(details, remove);
+    container.append(card);
+  }
+  if ([...botSelect.options].some((option) => option.value === selected)) botSelect.value = selected;
 }
 
 function renderRoutines(routines) {
@@ -196,6 +223,7 @@ function renderState(state, taskResponse = {}) {
     card.append(controls);
     approvals.append(card);
   }
+  renderBots(Array.isArray(state.bots) ? state.bots : []);
   renderRoutines(Array.isArray(state.routines) ? state.routines : []);
 }
 
@@ -265,6 +293,38 @@ skillForm.addEventListener('submit', async (event) => {
   skillSelect.value = data.skill.id;
 });
 
+botSelect.addEventListener('change', () => {
+  const selected = botProfiles.get(botSelect.value);
+  if (selected?.workspace && !workspace.value.trim()) workspace.value = selected.workspace;
+});
+
+botForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const root = workspace.value.trim();
+  const name = document.querySelector('#bot-name').value.trim();
+  const role = document.querySelector('#bot-role').value.trim();
+  const instructions = document.querySelector('#bot-instructions').value.trim();
+  if (!root || !name || !instructions) {
+    addMessage('error', 'OpenBot', 'Enter a workspace, bot name, and bot instructions first.');
+    return;
+  }
+  const response = await fetch('/api/bots', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name, role, instructions, workspace: root, skill: skillSelect.value || undefined })
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    addMessage('error', 'OpenBot', data.error || 'Bot could not be saved.');
+    return;
+  }
+  document.querySelector('#bot-name').value = '';
+  document.querySelector('#bot-role').value = '';
+  document.querySelector('#bot-instructions').value = '';
+  await load();
+  botSelect.value = data.bot.id;
+});
+
 routineForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const root = workspace.value.trim();
@@ -277,7 +337,7 @@ routineForm.addEventListener('submit', async (event) => {
   }
   const response = await fetch('/api/routines', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ title, schedule, prompt, workspace: root, skill: skillSelect.value || undefined })
+    body: JSON.stringify({ title, schedule, prompt, workspace: root, skill: skillSelect.value || undefined, botId: botSelect.value || undefined })
   });
   const data = await response.json();
   if (!response.ok) {
@@ -307,7 +367,7 @@ form.addEventListener('submit', async (event) => {
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ message, workspace: root, model: modelName || undefined, skill: skillSelect.value || undefined })
+      body: JSON.stringify({ message, workspace: root, model: modelName || undefined, skill: skillSelect.value || undefined, botId: botSelect.value || undefined })
     });
     const data = await response.json();
     pending.querySelector('b').textContent = data.model || 'OpenBot';
