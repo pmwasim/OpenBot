@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.5 — 2026-08-27
+
+Added the first usable local routine system.
+
+- Create, list, pause, enable, and run routines from the dashboard, API, or CLI.
+- Store explicit interval/daily schedules, task links, last status, and the 20 most recent run records.
+- Run routines through the same bounded agent controller and approval gates as interactive tasks.
+- Keep scheduling local and lightweight: it runs while the daemon is running and installs no hosted service or paid dependency.
+- Expanded the release harness to 72 checks.
+
 ## 0.3.4 — 2026-08-27
 
 Public product language is now brand-neutral.

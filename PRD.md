@@ -76,9 +76,9 @@ OpenBot should provide a practical middle path: real work through isolated worke
 
 - The local agent loop is bounded and structured, but it supports only the first-party file/shell/browser tool set and one task at a time.
 - Approval records are attached to proposed actions and diffs, and the dashboard resumes the same task after an operator approves it.
-- Routines are displayed but cannot be created, scheduled, executed, paused, or retried.
+- Local routines can be created, scheduled, run immediately, paused, and audited with a bounded recent-run history.
 - No multi-user authorization, CSRF protection, or rate limiting exists; explicit non-loopback mode now requires a shared bearer token.
-- Provider credentials, OAuth, model routing, MCP, plugins, routines, collaboration, and audit replay are absent or incomplete; local declarative skills are now supported.
+- Provider credentials, OAuth, model routing, MCP, plugins, collaboration, and audit replay are absent or incomplete; local declarative skills and bounded routines are now supported.
 - State uses an append-only JSONL event log with a lock and legacy migration path; retention, multi-process recovery policy, and encrypted-at-rest storage remain future work.
 - The HTTP server is suitable for a local prototype only; it must not be exposed to a LAN or internet before hardening.
 - CPU-only legacy mode is supported for core administration and allowlisted diagnostics; natural-language reasoning still depends on an installed local model and may be too slow for some older laptops.
@@ -91,12 +91,13 @@ The first meaningful “bot, not control panel” milestone is implemented on th
 - `/api/chat`, `openbot chat`, and the dashboard use the same controller and existing policy/engine boundary.
 - Safe reads/diagnostics execute automatically; writes, deletion, publishing, external communication, and other consequential effects stop with explicit approval.
 - Model context, action results, approval details, and persisted audit events are redacted and bounded.
-- The release harness covers 67 checks, including malformed model output, approval stop, low-resource execution, CLI/API flows, task history, memory, skills, UI safety, workspace containment, LAN authentication, and audit redaction.
+- The release harness covers 72 checks, including malformed model output, approval stop, low-resource execution, CLI/API flows, task history, memory, skills, routines, UI safety, workspace containment, LAN authentication, and audit redaction.
 - The dashboard shows recent durable tasks with audit links, and `doctor --json` explains the low-resource profile without requiring a model.
 - Operators can save, list, and delete workspace-scoped local memory; only matching memory is injected into agent context after redaction.
 - Operators can save, list, select, and delete local skills; selected skills are redacted, bounded, audited, and injected only as untrusted guidance under the OpenBot policy.
+- Operators can create, list, pause, enable, run, and audit local routines. The in-process scheduler uses one lightweight timer, caps routines at 50 and run history at 20 per routine, and never auto-approves consequential actions.
 
-This is not a claim of parity with a managed cloud service. Hosted computers, persistent shared environments, connectors, routines, and collaboration remain OpenBot roadmap items; OpenBot currently provides scoped operator-controlled local memory plus explicit declarative local skills. OpenBot's differentiator is local ownership, zero mandatory spend, and inspectable policy/audit behavior.
+This is not a claim of parity with a managed cloud service. Hosted computers, persistent shared environments, connectors, and collaboration remain OpenBot roadmap items; OpenBot currently provides scoped operator-controlled local memory, explicit declarative local skills, and local routines that run while the daemon is active. OpenBot's differentiator is local ownership, zero mandatory spend, and inspectable policy/audit behavior.
 
 ## 8. User stories
 
@@ -200,7 +201,7 @@ Acceptance criteria:
 - MCP server registry with signed/verified metadata, per-tool permissions, health checks, and disable/rollback.
 - Versioned skills with manifests, permission declarations, fixtures, tests, and import/export.
 - Plugin SDK with process isolation and capability permissions.
-- Real scheduler with timezone, missed-run policy, retry policy, concurrency limits, and run history.
+- Scheduler upgrades with timezone, missed-run policy, retry policy, and richer concurrency policies.
 - Browser worker using isolated profiles and domain policies.
 - Desktop worker using explicit screen/input permissions and an emergency stop.
 - Memory scoped by user, agent, task, and workspace with retention controls.

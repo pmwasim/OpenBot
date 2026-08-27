@@ -8,6 +8,7 @@ import { createProviderHub } from './lib/provider.mjs';
 import { openStore } from './lib/store.mjs';
 import { createEngine } from './lib/engine.mjs';
 import { createAgentController } from './lib/agent.mjs';
+import { createRoutineScheduler } from './lib/routines.mjs';
 
 const config = loadConfig();
 const maxBodyBytes = 64 * 1024;
@@ -78,6 +79,14 @@ async function runAgentTask({ taskId, prompt, workspace, model, maxTurns, approv
   return controller.run({ taskId, prompt, workspace, model, approvalId, skill });
 }
 
+const routineScheduler = createRoutineScheduler({
+  store,
+  runRoutine: async (routine) => {
+    const model = await resolveAgentModel();
+    return runAgentTask({ prompt: routine.prompt, workspace: routine.workspace, model, skill: routine.skill });
+  }
+});
+
 function agentHttpStatus(result) {
   return result.status === 'completed' || result.status === 'waiting_approval' ? 200
     : result.status === 'denied' ? 403
@@ -111,6 +120,25 @@ const app = http.createServer(async (req, res) => {
     if (bind.overridden && !hasBearerToken(req, process.env.OPENBOT_AUTH_TOKEN)) return json(res, 401, { error: 'Authentication required.' });
     const url = new URL(req.url, `http://${req.headers.host}`);
     if (url.pathname === '/api/state' && req.method === 'GET') return json(res, 200, await store.getState());
+    if (url.pathname === '/api/routines' && req.method === 'GET') return json(res, 200, { routines: await store.listRoutines() });
+    if (url.pathname === '/api/routines' && req.method === 'POST') return json(res, 200, await store.createRoutine(await body(req)));
+    if (url.pathname.startsWith('/api/routines/') && req.method === 'GET') {
+      const id = decodeURIComponent(url.pathname.slice('/api/routines/'.length));
+      const routine = await store.getRoutine(id);
+      return routine ? json(res, 200, { routine }) : json(res, 404, { error: 'Routine not found.' });
+    }
+    if (url.pathname.startsWith('/api/routines/') && url.pathname.endsWith('/run') && req.method === 'POST') {
+      const id = decodeURIComponent(url.pathname.slice('/api/routines/'.length, -'/run'.length));
+      return json(res, 200, { result: await routineScheduler.runNow(id) });
+    }
+    if (url.pathname.startsWith('/api/routines/') && req.method === 'PATCH') {
+      const id = decodeURIComponent(url.pathname.slice('/api/routines/'.length));
+      return json(res, 200, await store.updateRoutine(id, await body(req)));
+    }
+    if (url.pathname.startsWith('/api/routines/') && req.method === 'DELETE') {
+      const id = decodeURIComponent(url.pathname.slice('/api/routines/'.length));
+      return json(res, 200, await store.deleteRoutine(id));
+    }
     if (url.pathname === '/api/health' && req.method === 'GET') {
       try {
         const tags = await ollama.tags();
@@ -205,4 +233,9 @@ const app = http.createServer(async (req, res) => {
   } catch (error) { json(res, error.statusCode || 500, { error: error.message || 'OpenBot failed unexpectedly.' }); }
 });
 
-app.listen(config.port, config.host, () => console.log(`OpenBot is ready at http://${config.host}:${config.port}`));
+app.listen(config.port, config.host, () => {
+  routineScheduler.start();
+  console.log(`OpenBot is ready at http://${config.host}:${config.port}`);
+});
+process.once('SIGINT', () => { routineScheduler.stop(); app.close(() => process.exit(0)); });
+process.once('SIGTERM', () => { routineScheduler.stop(); app.close(() => process.exit(0)); });

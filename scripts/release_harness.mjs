@@ -67,6 +67,7 @@ async function main() {
     'SECURITY.md',
     'LICENSE',
     'lib/store.mjs',
+    'lib/routines.mjs',
     'lib/policy.mjs',
     'lib/provider.mjs',
     'lib/loopback.mjs',
@@ -85,8 +86,8 @@ async function main() {
   }
   const indexSource = await readFile(join(root, 'public/index.html'), 'utf8');
   const appSource = await readFile(join(root, 'public/app.js'), 'utf8');
-  if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"') || !indexSource.includes('id="recent-tasks"') || !indexSource.includes('id="memories"') || !indexSource.includes('id="memory-form"') || !indexSource.includes('id="skills"') || !indexSource.includes('id="skill-form"')) throw new Error('dashboard is missing workspace, task history, memory, or skill controls');
-  if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, resume, task history, memory, skills, and audit links');
+  if (!indexSource.includes('id="workspace"') || !indexSource.includes('id="task-form"') || !indexSource.includes('id="recent-tasks"') || !indexSource.includes('id="memories"') || !indexSource.includes('id="memory-form"') || !indexSource.includes('id="skills"') || !indexSource.includes('id="skill-form"') || !indexSource.includes('id="routine-form"') || !indexSource.includes('id="routine-schedule"')) throw new Error('dashboard is missing workspace, task history, memory, skill, or routine controls');
+  if (!appSource.includes('workspace') || !appSource.includes('action-card') || !appSource.includes('/audit') || !appSource.includes('/resume') || !appSource.includes('/api/tasks') || !appSource.includes('/api/memories') || !appSource.includes('/api/skills') || !appSource.includes('/api/routines') || !appSource.includes('Run now') || !appSource.includes('skill')) throw new Error('dashboard does not expose agent actions, resume, task history, memory, skills, routines, and audit links');
   if (appSource.includes('e.innerHTML=`')) throw new Error('dashboard renders state with unsafe innerHTML');
   pass('dashboard exposes workspace, action cards, and audit links safely');
 
@@ -246,6 +247,7 @@ async function main() {
   const browserWs = await mkdtemp(join(tmpdir(), 'openbot-browser-'));
   const agentWs = await mkdtemp(join(tmpdir(), 'openbot-agent-'));
   const { openStore } = await import(pathToFileURL(join(root, 'lib/store.mjs')).href);
+  const { createRoutineScheduler, nextRoutineRun, parseRoutineSchedule } = await import(pathToFileURL(join(root, 'lib/routines.mjs')).href);
   try {
     const freshStore = await openStore({ dataDir: freshDataDir });
     const freshState = await freshStore.getState();
@@ -265,6 +267,33 @@ async function main() {
     await freshStore.deleteSkill(savedSkill.skill.id);
     if ((await freshStore.listSkills()).length !== 0) throw new Error('skill deletion');
     pass('local skills are durable, redacted, explicitly addressable, and removable');
+    if (parseRoutineSchedule('every 15m').intervalMs !== 900000 || parseRoutineSchedule('daily 09:30').hour !== 9) throw new Error('routine schedule parser');
+    let invalidRoutineSchedule = false;
+    try { parseRoutineSchedule('hourly'); } catch (error) { invalidRoutineSchedule = error.statusCode === 400; }
+    if (!invalidRoutineSchedule) throw new Error('invalid routine schedule accepted');
+    const routineCreated = await freshStore.createRoutine({ title: 'Workspace review', schedule: 'every 15m', prompt: 'Review the workspace and report risks.', workspace: '/tmp/agent-harness' });
+    if (!routineCreated.routine?.id || routineCreated.routine.enabled !== true || !routineCreated.routine.nextRunAt) throw new Error('routine creation');
+    for (let run = 0; run < 25; run += 1) await freshStore.recordRoutineRun(routineCreated.routine.id, { runId: `run-${run}`, status: 'completed' });
+    const durableRoutine = (await openStore({ dataDir: freshDataDir })).getRoutine
+      ? await (await openStore({ dataDir: freshDataDir })).getRoutine(routineCreated.routine.id)
+      : null;
+    if (!durableRoutine || durableRoutine.runs.length !== 20) throw new Error('routine run history cap or durability');
+    await freshStore.updateRoutine(routineCreated.routine.id, { enabled: false });
+    if ((await freshStore.getRoutine(routineCreated.routine.id)).enabled) throw new Error('routine pause');
+    pass('local routines validate, persist, pause, and cap run history');
+    let schedulerCalls = 0;
+    const schedulerRoutine = { id: 'scheduler-test', title: 'Scheduler test', schedule: 'every 15m', enabled: true, nextRunAt: new Date(Date.now() - 1000).toISOString() };
+    const schedulerStore = {
+      async listRoutines() { return [schedulerRoutine]; },
+      async getRoutine() { return schedulerRoutine; },
+      async recordRoutineRun() {},
+      async updateRoutine() {}
+    };
+    const scheduler = createRoutineScheduler({ store: schedulerStore, tickMs: 60_000, runRoutine: async () => { schedulerCalls += 1; await new Promise((resolve) => setTimeout(resolve, 10)); return { status: 'waiting_approval', taskId: 'task-routine' }; } });
+    await Promise.all([scheduler.tick(), scheduler.tick()]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    if (schedulerCalls !== 1) throw new Error(`routine scheduler duplicate run: ${schedulerCalls}`);
+    pass('routine scheduler deduplicates concurrent runs and preserves approval status');
 
     await writeFile(join(dataDir, 'state.json'), JSON.stringify({
       approvals: [{ id: 'legacy-1', title: 'Legacy approval', detail: 'migrated from state.json', status: 'waiting' }],
@@ -335,7 +364,8 @@ async function main() {
           JSON.stringify({ action: { tool: 'file.write', args: { path: 'notes.txt', contents: 'changed by agent\n' } } }),
           JSON.stringify({ reply: 'The approved change is complete.' }),
           'not-json',
-          JSON.stringify({ reply: 'The skill is loaded.' })
+          JSON.stringify({ reply: 'The skill is loaded.' }),
+          JSON.stringify({ reply: 'The routine completed.' })
         ])
       },
       stdio: ['ignore', 'pipe', 'pipe']
@@ -352,6 +382,12 @@ async function main() {
       const parsed = JSON.parse(state.body);
       if (state.status !== 200 || !parsed.approvals) throw new Error('invalid state');
       pass('state endpoint responds with approvals');
+      const routineCreate = await http('/api/routines', { method: 'POST', body: JSON.stringify({ title: 'Nightly review', schedule: 'daily 23:00', prompt: 'Review the workspace and report risks.', workspace: agentWs }) });
+      const routineCreateBody = JSON.parse(routineCreate.body);
+      if (routineCreate.status !== 200 || !routineCreateBody.routine?.id || !routineCreateBody.routine.nextRunAt) throw new Error(`routine create ${routineCreate.status} ${routineCreate.body}`);
+      const routineList = await http('/api/routines');
+      if (routineList.status !== 200 || !JSON.parse(routineList.body).routines.some((item) => item.id === routineCreateBody.routine.id)) throw new Error(`routine list ${routineList.status} ${routineList.body}`);
+      pass('routine API creates and lists durable local schedules');
       const taskList = await http('/api/tasks');
       const taskListBody = JSON.parse(taskList.body);
       if (taskList.status !== 200 || !Array.isArray(taskListBody.tasks)) throw new Error(`task list ${taskList.status} ${taskList.body}`);
@@ -409,6 +445,12 @@ async function main() {
       const agentWithSkillBody = JSON.parse(agentWithSkill.body);
       if (agentWithSkill.status !== 200 || agentWithSkillBody.status !== 'completed') throw new Error(`agent skill ${agentWithSkill.status} ${agentWithSkill.body}`);
       pass('agent chat accepts an explicit local skill without changing approval boundaries');
+      const routineRun = await http(`/api/routines/${encodeURIComponent(routineCreateBody.routine.id)}/run`, { method: 'POST' });
+      const routineRunBody = JSON.parse(routineRun.body);
+      if (routineRun.status !== 200 || routineRunBody.result?.status !== 'completed' || !routineRunBody.result?.taskId) throw new Error(`routine run ${routineRun.status} ${routineRun.body}`);
+      const routinePaused = await http(`/api/routines/${encodeURIComponent(routineCreateBody.routine.id)}`, { method: 'PATCH', body: JSON.stringify({ enabled: false }) });
+      if (routinePaused.status !== 200 || routinePaused.body.includes('"enabled":true')) throw new Error(`routine pause ${routinePaused.status} ${routinePaused.body}`);
+      pass('routine Run now uses the normal agent loop and pause is durable');
       const invalidModel = await http('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'test', model: '__not_installed__' }) });
       if (![400, 503].includes(invalidModel.status)) throw new Error(`status ${invalidModel.status}`); pass('uninstalled model is rejected');
       const oversized = await http('/api/approval', { method: 'POST', body: JSON.stringify({ id: 'x', decision: 'x', padding: 'a'.repeat(70000) }) });

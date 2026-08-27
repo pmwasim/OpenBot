@@ -4,6 +4,7 @@ const task = document.querySelector('#task');
 const workspace = document.querySelector('#workspace');
 const memoryForm = document.querySelector('#memory-form');
 const skillForm = document.querySelector('#skill-form');
+const routineForm = document.querySelector('#routine-form');
 const skillSelect = document.querySelector('#skill');
 let modelName = '';
 
@@ -100,6 +101,41 @@ function renderSkills(skills) {
   if ([...skillSelect.options].some((option) => option.value === selected)) skillSelect.value = selected;
 }
 
+function renderRoutines(routines) {
+  const container = document.querySelector('#routines');
+  container.replaceChildren();
+  for (const routine of routines) {
+    const card = element('div', 'routine');
+    const details = element('div');
+    details.append(
+      element('b', '', routine.title || 'Routine'),
+      element('p', '', `${routine.schedule || ''} · ${routine.enabled ? 'enabled' : 'paused'}`),
+      element('small', '', routine.lastStatus ? `Last run: ${routine.lastStatus}` : `Next run: ${routine.nextRunAt || 'not scheduled'}`)
+    );
+    const controls = element('div', 'routine-controls');
+    const toggle = element('button', `toggle ${routine.enabled ? 'on' : ''}`, routine.enabled ? 'Pause' : 'Enable');
+    toggle.addEventListener('click', async () => {
+      toggle.disabled = true;
+      await fetch(`/api/routines/${encodeURIComponent(routine.id)}`, {
+        method: 'PATCH', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ enabled: !routine.enabled })
+      });
+      await load();
+    });
+    const run = element('button', 'text', 'Run now');
+    run.addEventListener('click', async () => {
+      run.disabled = true;
+      const response = await fetch(`/api/routines/${encodeURIComponent(routine.id)}/run`, { method: 'POST' });
+      const data = await response.json();
+      addMessage(response.ok ? 'bot' : 'error', 'OpenBot', data.result?.reply || data.result?.error || data.error || data.result?.status || 'Routine finished.');
+      await load();
+    });
+    controls.append(toggle, run);
+    card.append(details, controls);
+    container.append(card);
+  }
+}
+
 async function loadSkills() {
   const response = await fetch('/api/skills');
   const data = await response.json();
@@ -115,7 +151,7 @@ async function load() {
   ]);
   const dot = document.querySelector('#health-dot');
   modelName = health.models?.[0] || '';
-  document.querySelector('#ollama').textContent = health.online ? 'Local model online' : 'Local model offline';
+  document.querySelector('#local-model').textContent = health.online ? 'Local model online' : 'Local model offline';
   document.querySelector('#model-count').textContent = health.online
     ? `${health.models.length} model${health.models.length === 1 ? '' : 's'} available`
     : 'Start the local model service to activate local intelligence';
@@ -160,15 +196,7 @@ function renderState(state, taskResponse = {}) {
     card.append(controls);
     approvals.append(card);
   }
-  const routines = document.querySelector('#routines');
-  routines.replaceChildren();
-  for (const routine of (Array.isArray(state.routines) ? state.routines : [])) {
-    const card = element('div', 'routine');
-    const details = element('div');
-    details.append(element('b', '', routine.title || 'Routine'), element('p', '', routine.schedule || ''));
-    card.append(details, element('button', `toggle ${routine.enabled ? 'on' : ''}`, ''));
-    routines.append(card);
-  }
+  renderRoutines(Array.isArray(state.routines) ? state.routines : []);
 }
 
 async function decide(approval, decision) {
@@ -235,6 +263,31 @@ skillForm.addEventListener('submit', async (event) => {
   document.querySelector('#skill-instructions').value = '';
   await loadSkills();
   skillSelect.value = data.skill.id;
+});
+
+routineForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const root = workspace.value.trim();
+  const title = document.querySelector('#routine-title').value.trim();
+  const schedule = document.querySelector('#routine-schedule').value.trim();
+  const prompt = document.querySelector('#routine-prompt').value.trim();
+  if (!root || !title || !schedule || !prompt) {
+    addMessage('error', 'OpenBot', 'Enter a workspace, routine name, schedule, and prompt first.');
+    return;
+  }
+  const response = await fetch('/api/routines', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ title, schedule, prompt, workspace: root, skill: skillSelect.value || undefined })
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    addMessage('error', 'OpenBot', data.error || 'Routine could not be saved.');
+    return;
+  }
+  document.querySelector('#routine-title').value = '';
+  document.querySelector('#routine-schedule').value = '';
+  document.querySelector('#routine-prompt').value = '';
+  await load();
 });
 
 workspace.addEventListener('change', () => loadMemories(workspace.value.trim()).catch(() => {}));

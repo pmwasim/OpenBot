@@ -8,6 +8,7 @@ import { detectIsolation } from '../lib/sandbox.mjs';
 import { openStore } from '../lib/store.mjs';
 import { createEngine } from '../lib/engine.mjs';
 import { createAgentController } from '../lib/agent.mjs';
+import { createRoutineScheduler } from '../lib/routines.mjs';
 
 const USAGE = `OpenBot CLI (local agent)
 
@@ -36,6 +37,11 @@ Commands:
   skill list         List reusable local skills
   skill add          Save an operator-approved local skill
   skill delete       Delete a local skill
+  routine list       List local scheduled routines
+  routine add        Create a local scheduled routine
+  routine run <id>   Run a routine once now
+  routine pause <id> Pause a routine
+  routine enable <id> Enable a routine
 
 Options:
   --json             Print machine-readable JSON
@@ -47,6 +53,7 @@ Options:
   --description <t>  Skill description for skill add
   --instructions <t> Skill instructions for skill add
   --skill <name>     Select a local skill for chat
+  --schedule <value> Routine schedule (every 15m or daily 09:30)
   --workspace <dir>  Task workspace directory
   --task <id>        Task id for propose
   --path <path>      Workspace-relative file path
@@ -79,7 +86,8 @@ const VALUE_FLAGS = {
   '--name': 'name',
   '--description': 'description',
   '--instructions': 'instructions',
-  '--skill': 'skill'
+  '--skill': 'skill',
+  '--schedule': 'schedule'
 };
 
 function parseArgs(argv) {
@@ -180,7 +188,7 @@ function fixtureAgentProvider(raw) {
   };
 }
 
-async function runAgent(store, config, flags, prompt) {
+async function runAgent(store, config, flags, prompt, options = {}) {
   if (!prompt) fail(Object.assign(new Error('chat requires a prompt.'), { exitCode: 1 }));
   if (!flags.workspace || flags.workspace === 'local') fail(Object.assign(new Error('Workspace is required (--workspace).'), { exitCode: 1 }));
 
@@ -210,9 +218,12 @@ async function runAgent(store, config, flags, prompt) {
     maxContextChars: config.agentContextChars
   });
   const result = await controller.run({ prompt, workspace: flags.workspace, taskId: flags.taskId, model, skill: flags.skill });
-  if (flags.json) print({ model: model || 'fixture', ...result }, true);
-  else print(result.reply || `${result.status}${result.approvals?.length ? `: approval ${result.approvals[0].id}` : ''}`);
-  if (!['completed', 'waiting_approval'].includes(result.status)) process.exit(result.status === 'denied' ? 2 : 1);
+  if (options.printResult !== false) {
+    if (flags.json) print({ model: model || 'fixture', ...result }, true);
+    else print(result.reply || `${result.status}${result.approvals?.length ? `: approval ${result.approvals[0].id}` : ''}`);
+    if (!['completed', 'waiting_approval'].includes(result.status)) process.exit(result.status === 'denied' ? 2 : 1);
+  }
+  return result;
 }
 
 async function main() {
@@ -348,6 +359,44 @@ async function main() {
       return;
     }
     fail(Object.assign(new Error('Use skill list, skill add, or skill delete.'), { exitCode: 1 }));
+  }
+
+  if (command === 'routine') {
+    const subcommand = positional[1];
+    if (subcommand === 'list') {
+      const routines = await store.listRoutines();
+      if (asJson) print({ routines }, true);
+      else if (!routines.length) print('No routines.');
+      else for (const routine of routines) console.log(`${routine.id}\t${routine.enabled ? 'enabled' : 'paused'}\t${routine.schedule}\t${routine.title}`);
+      return;
+    }
+    if (subcommand === 'add') {
+      const created = await store.createRoutine({ title: flags.title, schedule: flags.schedule, prompt: flags.prompt || positional.slice(2).join(' '), workspace: flags.workspace, skill: flags.skill });
+      print(created, true);
+      return;
+    }
+    if (['pause', 'enable'].includes(subcommand)) {
+      const id = positional[2];
+      if (!id) fail(Object.assign(new Error('Routine id is required.'), { exitCode: 1 }));
+      print(await store.updateRoutine(id, { enabled: subcommand === 'enable' }), true);
+      return;
+    }
+    if (subcommand === 'run') {
+      const id = positional[2];
+      if (!id) fail(Object.assign(new Error('Routine id is required.'), { exitCode: 1 }));
+      const routine = await store.getRoutine(id);
+      if (!routine) fail(Object.assign(new Error('Routine not found.'), { exitCode: 1 }));
+      const scheduler = createRoutineScheduler({
+        store,
+        runRoutine: async (item) => runAgent(store, config, { ...flags, workspace: item.workspace, skill: item.skill, json: true }, item.prompt, { printResult: false }),
+        tickMs: 60_000
+      });
+      const result = await scheduler.runNow(id);
+      print({ routineId: id, result }, true);
+      if (!['completed', 'waiting_approval'].includes(result.status)) process.exit(1);
+      return;
+    }
+    fail(Object.assign(new Error('Use routine list, routine add, routine run, routine pause, or routine enable.'), { exitCode: 1 }));
   }
 
   if (command === 'run') {
