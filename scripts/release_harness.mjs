@@ -59,6 +59,7 @@ async function main() {
     'public/app.js',
     'public/index.html',
     'PRD.md',
+    'CHANGELOG.md',
     'LICENSE',
     'lib/store.mjs',
     'lib/policy.mjs',
