@@ -18,6 +18,7 @@ OpenBot is a free, open-source, local-first bot that turns a task into bounded, 
 - Daemon-routed CLI task management: `list`, `show`, `logs`, `approve`, and `reject` can inspect or change server-owned task state without a second local store.
 - Daemon-routed task control: `pause`, `resume`, and `cancel` can control server-owned work while preserving durable status transitions and the bounded agent loop.
 - Daemon-routed administration: `memory`, `skill`, `bot`, and `routine` commands can manage server-owned state without a second local store; named-bot chat and routine Run now use the shared daemon loop.
+- Lightweight desktop launcher: `desktop` starts or reuses the local daemon and opens the dashboard in the host browser; `--no-open` supports headless sessions.
 - `legacy` resource profile for older CPU-only laptops: three turns/actions, compact context, and container-free allowlisted diagnostics.
 - Loopback-only defaults, workspace containment, bounded requests, output/time limits, and security response headers.
 - Optional LAN mode requires `OPENBOT_AUTH_TOKEN`; startup refuses an unprotected non-loopback bind.
@@ -35,6 +36,8 @@ node cli/openbot.mjs resume <task-id> --json
 node cli/openbot.mjs skill add --name release-check --instructions "Review tests and report release risks." --json
 node cli/openbot.mjs routine add --title "Workspace review" --schedule "daily 09:30" --workspace /path/to/project "Review the workspace and report risks." --json
 node cli/openbot.mjs start --detach --json
+node cli/openbot.mjs desktop --json
+node cli/openbot.mjs desktop --no-open --json
 node cli/openbot.mjs status --json
 node cli/openbot.mjs stop --json
 npm run release
@@ -49,11 +52,13 @@ Natural-language tasks require a locally installed model runtime. Core administr
 
 ## Product boundary
 
-The current release is a real local bot loop with durable named bots, reusable local skills, explicit local routines, incremental task activity visibility, and daemon-routed CLI administration, task management, and control. Desktop automation, connectors, signed extensions, collaboration, multi-user auth, and remote workers remain future work. Local reusable skills are supported as operator-selected instruction packs; they are not executable extensions and cannot expand the policy or tool boundary. The server remains loopback-only by default; explicit LAN mode uses the bearer-token boundary documented in `SECURITY.md`. The scheduler runs while the local daemon is running; it does not install an OS background service.
+The current release is a real local bot loop with durable named bots, reusable local skills, explicit local routines, incremental task activity visibility, daemon-routed CLI administration, task management, and control, plus a lightweight desktop launcher. Desktop automation, connectors, signed extensions, collaboration, multi-user auth, and remote workers remain future work. Local reusable skills are supported as operator-selected instruction packs; they are not executable extensions and cannot expand the policy or tool boundary. The server remains loopback-only by default; explicit LAN mode uses the bearer-token boundary documented in `SECURITY.md`. The scheduler runs while the local daemon is running; it does not install an OS background service.
 
 `start --detach` keeps the daemon running after the terminal closes and writes its process record and runtime log under `OPENBOT_DATA_DIR` (default: `data/`). Use `status` to check the daemon and local model health, and `stop` for a clean shutdown. This is host-local background execution: shutting down or sleeping the laptop stops local work.
 
 Add `--daemon` to `chat`, `list`, `show`, `logs`, `approve`, `reject`, `pause`, `resume`, `cancel`, `memory`, `skill`, `bot`, or `routine` after starting the daemon to use the shared local HTTP service. This keeps task, approval, audit history, routines, bots, skills, memory, and dashboard state in the daemon process; the CLI does not need a second populated local store for those commands. The optional `OPENBOT_DAEMON_URL` environment variable selects an explicitly configured daemon endpoint; when LAN access is enabled, `OPENBOT_AUTH_TOKEN` is sent as its bearer credential.
+
+Use `node cli/openbot.mjs desktop` when you want a one-command graphical entry point. It starts or reuses the detached daemon and opens the dashboard with the platform's existing browser launcher. `--no-open` starts the daemon and prints the URL without launching a browser.
 
 The dashboard polls `/api/tasks/:id/events?after=<offset>` every 1.5 seconds only while work is active. The endpoint returns the task, newly appended events, and the next offset, so lightweight clients can show progress without opening a permanent connection. Events remain subject to the same redaction and local-access boundaries as task audits.
 

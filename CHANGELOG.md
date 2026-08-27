@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.6 — 2026-08-27
+
+Added a lightweight desktop launcher for the local dashboard.
+
+- Start or reuse the portable daemon and open the local dashboard with `node cli/openbot.mjs desktop`.
+- Support `--no-open` for headless sessions and older environments without a graphical shell.
+- Use the host's existing browser and stock Node.js facilities without adding a native runtime, hosted service, or paid dependency.
+- Preserve loopback defaults, explicit LAN authentication, daemon lifecycle checks, and the shared task state used by CLI and dashboard clients.
+- Expand release verification to cover the launcher against a live detached daemon.
+
 ## 0.4.5 — 2026-08-27
 
 Added shared-daemon administration parity for local bots, skills, memory, and routines.

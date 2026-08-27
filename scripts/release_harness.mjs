@@ -71,6 +71,7 @@ async function main() {
     'lib/policy.mjs',
     'lib/provider.mjs',
     'lib/daemon.mjs',
+    'lib/desktop.mjs',
     'lib/client.mjs',
     'lib/loopback.mjs',
     'lib/engine.mjs',
@@ -436,6 +437,14 @@ async function main() {
       throw new Error(`stopped daemon status: ${stoppedStatus.output}`);
     }
     pass('detached daemon start/status/duplicate-start/stop lifecycle is portable');
+    const desktopLaunch = await runNode(['cli/openbot.mjs', 'desktop', '--no-open', '--json'], daemonEnv, { timeoutMs: 15000 });
+    const desktopLaunchJson = parseCliJson(desktopLaunch.output);
+    if (desktopLaunch.code !== 0 || desktopLaunchJson.status !== 'running' || desktopLaunchJson.opened !== false || desktopLaunchJson.url !== 'http://127.0.0.1:4214') {
+      throw new Error(`desktop launch: ${desktopLaunch.output}`);
+    }
+    const desktopStop = await runNode(['cli/openbot.mjs', 'stop', '--json'], daemonEnv, { timeoutMs: 15000 });
+    if (desktopStop.code !== 0) throw new Error(`desktop stop: ${desktopStop.output}`);
+    pass('desktop launcher reuses the portable daemon without requiring a native shell');
 
     const child = spawn(process.execPath, ['server.mjs'], {
       cwd: root,
