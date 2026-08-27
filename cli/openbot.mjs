@@ -13,7 +13,7 @@ import { daemonStatus, startDaemon, stopDaemon } from '../lib/daemon.mjs';
 import { launchDesktop } from '../lib/desktop.mjs';
 import { installService, serviceInfo, uninstallService } from '../lib/service.mjs';
 import {
-  daemonBot, daemonBots, daemonChat, daemonControlTask, daemonCreateBot, daemonCreateMemory, daemonCreateRoutine, daemonCreateSkill,
+  daemonBot, daemonBots, daemonChat, daemonControlTask, daemonCreateBot, daemonCreateMemory, daemonCreateRoutine, daemonCreateSkill, daemonUpdateBot,
   daemonDecideApproval, daemonDeleteBot, daemonDeleteMemory, daemonDeleteSkill, daemonList, daemonLogs, daemonMemories, daemonResume,
   daemonRoutine, daemonRoutines, daemonRunRoutine, daemonShow, daemonSkill, daemonSkills, daemonState, daemonUpdateRoutine
 } from '../lib/client.mjs';
@@ -50,6 +50,7 @@ Commands:
   memory delete      Delete a local memory fact
   bot list           List named local bots
   bot add            Create a named local bot
+  bot update <id>    Update a named local bot
   bot chat <id>      Chat with a named local bot
   bot delete <id>    Delete a named local bot
   skill list         List reusable local skills
@@ -478,6 +479,17 @@ async function main() {
       print(created, true);
       return;
     }
+    if (subcommand === 'update') {
+      const id = positional[2];
+      if (!id) fail(Object.assign(new Error('Bot id is required.'), { exitCode: 1 }));
+      const patch = {};
+      for (const field of ['name', 'role', 'instructions', 'workspace', 'skill']) {
+        if (flags[field] !== undefined) patch[field] = flags[field];
+      }
+      if (!Object.keys(patch).length) fail(Object.assign(new Error('Provide at least one bot field to update.'), { exitCode: 1 }));
+      print(flags.daemon ? await daemonUpdateBot(config, id, patch) : await store.updateBot(id, patch), true);
+      return;
+    }
     if (subcommand === 'delete') {
       const id = positional[2];
       if (!id) fail(Object.assign(new Error('Bot id is required.'), { exitCode: 1 }));
@@ -492,7 +504,7 @@ async function main() {
       await runAgent(store, config, { ...flags, bot: id, workspace: flags.workspace || bot.workspace }, positional.slice(3).join(' ').trim());
       return;
     }
-    fail(Object.assign(new Error('Use bot list, bot add, bot chat, or bot delete.'), { exitCode: 1 }));
+    fail(Object.assign(new Error('Use bot list, bot add, bot update, bot chat, or bot delete.'), { exitCode: 1 }));
   }
 
   if (command === 'skill') {

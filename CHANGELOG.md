@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.8 — 2026-08-27
+
+Added named-bot profile update parity.
+
+- Update a bot's name, role, instructions, workspace, or selected skill with `bot update <id>`.
+- Support direct-local and shared-daemon updates while retaining server-side validation, redaction, duplicate-name checks, and skill lookup.
+- Keep existing bot conversation history and task associations intact during profile updates.
+- Expand release verification to cover both local and daemon-routed profile changes.
+
 ## 0.4.7 — 2026-08-27
 
 Added opt-in user-level daemon service integration.

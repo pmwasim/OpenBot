@@ -404,6 +404,9 @@ async function main() {
     const cliBotAdd = await runNode(['cli/openbot.mjs', 'bot', 'add', '--name', 'CLI steward', '--role', 'Review local work', '--instructions', 'Review tests and report risks.', '--workspace', fileWs, '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
     const cliBotAddJson = parseCliJson(cliBotAdd.output);
     if (cliBotAdd.code !== 0 || !cliBotAddJson.bot?.id || cliBotAddJson.bot.name !== 'CLI steward') throw new Error(`CLI bot add: ${cliBotAdd.output}`);
+    const cliBotUpdate = await runNode(['cli/openbot.mjs', 'bot', 'update', cliBotAddJson.bot.id, '--role', 'Review and summarize local work', '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
+    const cliBotUpdateJson = parseCliJson(cliBotUpdate.output);
+    if (cliBotUpdate.code !== 0 || cliBotUpdateJson.bot?.role !== 'Review and summarize local work') throw new Error(`CLI bot update: ${cliBotUpdate.output}`);
     const cliBotList = await runNode(['cli/openbot.mjs', 'bot', 'list', '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
     const cliBotListJson = parseCliJson(cliBotList.output);
     if (cliBotList.code !== 0 || !cliBotListJson.bots?.some((bot) => bot.id === cliBotAddJson.bot.id && bot.messageCount === 0)) throw new Error(`CLI bot list: ${cliBotList.output}`);
@@ -649,6 +652,9 @@ async function main() {
       const daemonBotList = await runNode(['cli/openbot.mjs', 'bot', 'list', '--daemon', '--json'], isolatedDaemonEnv);
       const daemonBotListJson = parseCliJson(daemonBotList.output);
       if (daemonBotList.code !== 0 || !daemonBotListJson.bots?.some((item) => item.id === daemonBotAddJson.bot.id)) throw new Error(`daemon bot list: ${daemonBotList.output}`);
+      const daemonBotUpdate = await runNode(['cli/openbot.mjs', 'bot', 'update', daemonBotAddJson.bot.id, '--daemon', '--role', 'Review shared work carefully', '--json'], isolatedDaemonEnv);
+      const daemonBotUpdateJson = parseCliJson(daemonBotUpdate.output);
+      if (daemonBotUpdate.code !== 0 || daemonBotUpdateJson.bot?.role !== 'Review shared work carefully') throw new Error(`daemon bot update: ${daemonBotUpdate.output}`);
       const daemonBotChat = await runNode(['cli/openbot.mjs', 'bot', 'chat', daemonBotAddJson.bot.id, '--daemon', '--workspace', agentWs, '--json', 'Use the shared bot.'], isolatedDaemonEnv, { timeoutMs: 20000 });
       const daemonBotChatJson = parseCliJson(daemonBotChat.output);
       if (daemonBotChat.code !== 0 || daemonBotChatJson.status !== 'completed' || daemonBotChatJson.reply !== 'The daemon bot completed.') throw new Error(`daemon bot chat: ${daemonBotChat.output}`);

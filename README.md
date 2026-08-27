@@ -12,6 +12,7 @@ OpenBot is a free, open-source, local-first bot that turns a task into bounded, 
 - Explicit workspace-scoped local memory managed from the dashboard, API, or CLI; only matching memory reaches the agent.
 - Operator-owned local skills managed from the dashboard, API, or CLI; skills are explicit, bounded guidance and cannot grant tools or bypass approvals.
 - Durable named local bots with a role, instructions, workspace, optional skill, and bounded conversation history managed from the dashboard, API, or CLI.
+- Named bot profiles can be edited from the CLI, including role, instructions, workspace, and selected skill, through either the local store or shared daemon.
 - Local routines managed from the dashboard, API, or CLI; schedules are explicit, runs are durable, and Run now uses the same approval-safe agent loop.
 - Portable daemon lifecycle: run OpenBot in the foreground or detach it into a local background process with status, duplicate-start protection, clean stop, and a data-directory log.
 - Incremental task activity feed: the API exposes a bounded event offset and the dashboard shows the latest activity while pending, running, or approval-bound work is active.
@@ -32,6 +33,7 @@ OPENBOT_RESOURCE_PROFILE=legacy node cli/openbot.mjs doctor --json
 node cli/openbot.mjs chat --workspace /path/to/project "Read notes.txt and summarize it" --json
 node cli/openbot.mjs chat --daemon --workspace /path/to/project "Use the shared local daemon" --json
 node cli/openbot.mjs bot add --name "Release steward" --role "Review local releases" --instructions "Check tests and report risks." --workspace /path/to/project --json
+node cli/openbot.mjs bot update <bot-id> --role "Review and summarize local work" --json
 node cli/openbot.mjs bot list --json
 node cli/openbot.mjs resume <task-id> --json
 node cli/openbot.mjs skill add --name release-check --instructions "Review tests and report release risks." --json
