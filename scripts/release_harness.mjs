@@ -587,6 +587,14 @@ async function main() {
       const asyncStream = await streamOn(port, `/api/tasks/${encodeURIComponent(asyncCreateBody.task.id)}/events/stream?after=0`);
       if (asyncStream.status !== 200 || !String(asyncStream.headers['content-type']).includes('text/event-stream') || !asyncStream.body.includes('event: ready') || !asyncStream.body.includes('event: task') || !asyncStream.body.includes('The asynchronous task completed.')) throw new Error(`async task stream ${asyncStream.status} ${asyncStream.body}`);
       pass('task event stream replays durable activity and closes at completion');
+      const liveCreate = await http('/api/tasks', { method: 'POST', body: JSON.stringify({ prompt: 'Deliver a live task update.', kind: 'plan', workspace: agentWs }) });
+      const liveTaskId = JSON.parse(liveCreate.body).task?.id;
+      const liveStreamPromise = streamOn(port, `/api/tasks/${encodeURIComponent(liveTaskId)}/events/stream?after=0`);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      const liveRun = await http(`/api/tasks/${encodeURIComponent(liveTaskId)}/run`, { method: 'POST', body: JSON.stringify({ model: 'fixture-async', background: true }) });
+      const liveStream = await liveStreamPromise;
+      if (liveCreate.status !== 200 || liveRun.status !== 202 || liveStream.status !== 200 || !liveStream.body.includes('Deliver a live task update.') || !liveStream.body.includes('The asynchronous task completed.')) throw new Error(`live task stream ${liveCreate.status} ${liveRun.status} ${liveStream.status} ${liveStream.body}`);
+      pass('open task event streams receive newly appended activity');
       const inFlightRequest = http('/api/chat', { method: 'POST', body: JSON.stringify({ message: 'Cancel this waiting task.', workspace: agentWs, model: 'fixture-slow' }) });
       let inFlightTask = null;
       for (let attempt = 0; attempt < 30; attempt += 1) {
