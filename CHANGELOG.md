@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.6 — 2026-08-27
+
+Hardened host-mode file access against symlink replacement races.
+
+- Open file handles with the operating-system no-follow flag and verify the opened file identity before reading or writing.
+- Keep writes on the verified descriptor so a later path replacement cannot redirect the write outside the workspace.
+- Require destination parent directories to already exist instead of recursively creating them through a path that may be replaced concurrently.
+- Expanded the release harness to 73 checks, including symlink escape rejection.
+
 ## 0.3.5 — 2026-08-27
 
 Added the first usable local routine system.

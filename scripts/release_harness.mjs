@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createServer, request } from 'node:http';
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -248,6 +248,7 @@ async function main() {
   const agentWs = await mkdtemp(join(tmpdir(), 'openbot-agent-'));
   const { openStore } = await import(pathToFileURL(join(root, 'lib/store.mjs')).href);
   const { createRoutineScheduler, nextRoutineRun, parseRoutineSchedule } = await import(pathToFileURL(join(root, 'lib/routines.mjs')).href);
+  const { fileRead, fileWrite } = await import(pathToFileURL(join(root, 'lib/workers/file.mjs')).href);
   try {
     const freshStore = await openStore({ dataDir: freshDataDir });
     const freshState = await freshStore.getState();
@@ -557,6 +558,18 @@ async function main() {
     if (absolute.status !== 'denied') throw new Error(`absolute escape status ${absolute.status}`);
     if (existsSync(absoluteEscapePath)) throw new Error('write escaped to temp dir');
     pass('FILE benchmark: diff, one-shot approval, workspace isolation');
+
+    const linkTarget = join(shellWs, 'outside-target.txt');
+    const linkPath = join(fileWs, 'link.txt');
+    await writeFile(linkTarget, 'outside target\n', 'utf8');
+    await symlink(linkTarget, linkPath);
+    let symlinkRejected = false;
+    try { await fileRead(fileWs, 'link.txt'); } catch (error) { symlinkRejected = error.code === 'ELOOP' || error.statusCode === 403; }
+    if (!symlinkRejected) throw new Error('file.read followed a symlink');
+    let symlinkWriteRejected = false;
+    try { await fileWrite(fileWs, 'link.txt', 'must not write\n'); } catch (error) { symlinkWriteRejected = error.code === 'ELOOP' || error.statusCode === 403; }
+    if (!symlinkWriteRejected) throw new Error('file.write followed a symlink');
+    pass('FILE hardening: workspace escapes through symlink targets are rejected');
 
     const safe = await engine.act({
       workspace: shellWs,
