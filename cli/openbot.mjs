@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { loadConfig, publicConfig, ROOT } from '../lib/config.mjs';
 import { assertBindHost, isLoopbackHost } from '../lib/loopback.mjs';
@@ -11,13 +12,14 @@ import { createAgentController } from '../lib/agent.mjs';
 import { createRoutineScheduler } from '../lib/routines.mjs';
 import { taskResultView } from '../lib/task-result.mjs';
 import { taskArtifactInventory } from '../lib/task-artifacts.mjs';
+import { createSkillPack, importSkillPack } from '../lib/skill-packs.mjs';
 import { daemonStatus, startDaemon, stopDaemon } from '../lib/daemon.mjs';
 import { launchDesktop } from '../lib/desktop.mjs';
 import { installService, serviceInfo, uninstallService } from '../lib/service.mjs';
 import {
   daemonBot, daemonBotMessages, daemonBots, daemonChat, daemonConnectors, daemonControlTask, daemonCreateBot, daemonCreateConnector, daemonCreateMemory, daemonCreateRoutine, daemonCreateSkill, daemonCreateTask, daemonRetryTask, daemonRunTask, daemonTaskArtifacts, daemonTaskEvents, daemonTaskResult, daemonUpdateBot, daemonUpdateConnector,
   daemonDecideApproval, daemonDeleteBot, daemonDeleteConnector, daemonDeleteMemory, daemonDeleteSkill, daemonList, daemonLogs, daemonMemories, daemonResume, daemonUpdateMemory,
-  daemonRoutine, daemonRoutines, daemonRunRoutine, daemonShow, daemonSkill, daemonSkills, daemonState, daemonUpdateRoutine, daemonUpdateSkill
+  daemonRoutine, daemonRoutines, daemonRunRoutine, daemonShow, daemonSkill, daemonSkills, daemonExportSkills, daemonImportSkills, daemonState, daemonUpdateRoutine, daemonUpdateSkill
 } from '../lib/client.mjs';
 
 const USAGE = `OpenBot CLI (local agent)
@@ -67,6 +69,8 @@ Commands:
   skill list         List reusable local skills
   skill add          Save an operator-approved local skill
   skill update <id>  Update a reusable local skill
+  skill export       Export a bounded versioned skill pack
+  skill import <file> Import a bounded versioned skill pack
   skill delete       Delete a local skill
   routine list       List local scheduled routines
   routine add        Create a local scheduled routine
@@ -595,6 +599,18 @@ async function main() {
       print(flags.daemon ? await daemonSkills(config) : { skills: await store.listSkills() }, true);
       return;
     }
+    if (subcommand === 'export') {
+      print(flags.daemon ? await daemonExportSkills(config) : createSkillPack(await store.listSkills()), true);
+      return;
+    }
+    if (subcommand === 'import') {
+      const file = positional[2];
+      if (!file) fail(Object.assign(new Error('A skill pack file is required.'), { exitCode: 1 }));
+      let pack;
+      try { pack = JSON.parse(await readFile(file, 'utf8')); } catch (error) { fail(Object.assign(new Error(`Skill pack could not be read: ${error.message}`), { exitCode: 1 })); }
+      print(flags.daemon ? await daemonImportSkills(config, pack) : await importSkillPack(store, pack), true);
+      return;
+    }
     if (subcommand === 'add') {
       const payload = { name: flags.name, description: flags.description, instructions: flags.instructions };
       const created = flags.daemon ? await daemonCreateSkill(config, payload) : await store.createSkill(payload);
@@ -618,7 +634,7 @@ async function main() {
       print(flags.daemon ? await daemonDeleteSkill(config, id) : await store.deleteSkill(id), true);
       return;
     }
-    fail(Object.assign(new Error('Use skill list, skill add, skill update, or skill delete.'), { exitCode: 1 }));
+    fail(Object.assign(new Error('Use skill list, skill add, skill update, skill export, skill import, or skill delete.'), { exitCode: 1 }));
   }
 
   if (command === 'connector') {

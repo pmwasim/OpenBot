@@ -18,6 +18,8 @@ Local connectors are read-only operator-owned HTTP definitions. Each connector r
 
 Local skills are declarative operator-owned text, not executable plugins. Skill content is length-limited and redacted before persistence, is injected only when explicitly selected, and is treated as untrusted guidance beneath the OpenBot system policy. Skills cannot add tools, grant permissions, cross workspace boundaries, or bypass approval gates.
 
+Portable skill packs use the `openbot.skill-pack` version 1 schema. Pack imports accept only bounded JSON text: at most 20 skills and 60 KiB, with separate limits for names, descriptions, and instructions. Unknown fields are ignored, duplicate names within a pack are rejected, existing local names are skipped, and token-like content is redacted before persistence. Packs contain no executable content or permission declarations and cannot expand the agent tool or approval boundary. An empty pack is a valid export and performs no import work.
+
 Named-bot conversation search accepts only a bounded text query, filters the bot's already bounded message history, and returns the same redacted message fields as ordinary history. It does not search other bots, task events, or workspace files.
 
 Failed-task retry is limited to terminally failed tasks and three attempts. It creates a durable `task.retry` event, clears only the prior task outcome, and does not carry forward a consumed approval; consequential actions therefore return to the normal fresh approval boundary on retry.

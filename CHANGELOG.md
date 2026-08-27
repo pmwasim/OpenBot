@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.37 — 2026-08-27
+
+Added portable, versioned declarative skill packs.
+
+- Export and import bounded `openbot.skill-pack` JSON through the dashboard, API, or CLI.
+- Redact imported text, reject malformed or oversized packs, reject duplicate names within a pack, and skip skills already present locally.
+- Keep packs text-only with no executable extensions, tool grants, permission declarations, or mandatory spend; empty exports remain valid.
+
 ## 0.4.36 — 2026-08-27
 
 Made queued daemon work restart-recoverable.

@@ -49,6 +49,43 @@ function element(tag, className, text) {
   return node;
 }
 
+const skillPackControls = (() => {
+  const existing = document.querySelector('#skill-pack-controls');
+  if (existing) return existing;
+  const bar = element('div', 'pack-controls');
+  bar.id = 'skill-pack-controls';
+  const exportLink = element('a', 'text', 'Export skill pack');
+  exportLink.href = '/api/skills/export';
+  exportLink.download = 'openbot-skills.json';
+  exportLink.rel = 'noopener';
+  const file = element('input');
+  file.id = 'skill-pack-file';
+  file.type = 'file';
+  file.accept = 'application/json';
+  const importButton = element('button', 'text', 'Import skill pack');
+  importButton.id = 'skill-pack-import';
+  importButton.type = 'button';
+  importButton.addEventListener('click', async () => {
+    const selected = file.files?.[0];
+    if (!selected) { addMessage('error', 'OpenBot', 'Choose a skill pack JSON file first.'); return; }
+    importButton.disabled = true;
+    try {
+      const pack = JSON.parse(await selected.text());
+      const response = await fetch('/api/skills/import', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pack }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Skill pack could not be imported.');
+      addMessage('bot', 'OpenBot', `Imported ${data.imported?.length || 0} skill(s); skipped ${data.skipped?.length || 0} existing skill(s).`);
+      file.value = '';
+      await loadSkills();
+    } catch (error) {
+      addMessage('error', 'OpenBot', error.message || 'Skill pack could not be imported.');
+    } finally { importButton.disabled = false; }
+  });
+  bar.append(exportLink, file, importButton);
+  skillForm?.after(bar);
+  return bar;
+})();
+
 const notificationButton = (() => {
   const existing = document.querySelector('#notifications');
   if (existing) return existing;

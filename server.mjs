@@ -14,6 +14,7 @@ import { taskResultView } from './lib/task-result.mjs';
 import { redactArtifactContent, taskArtifactInventory, TASK_ARTIFACT_LIMITS } from './lib/task-artifacts.mjs';
 import { fileRead } from './lib/workers/file.mjs';
 import { createTaskQueue, listRecoverableQueuedTasks } from './lib/task-queue.mjs';
+import { createSkillPack, importSkillPack } from './lib/skill-packs.mjs';
 
 const config = loadConfig();
 const maxBodyBytes = 64 * 1024;
@@ -471,6 +472,13 @@ const app = http.createServer(async (req, res) => {
     if (url.pathname === '/api/skills' && req.method === 'POST') {
       const payload = await body(req);
       return json(res, 200, await store.createSkill(payload));
+    }
+    if (url.pathname === '/api/skills/export' && req.method === 'GET') {
+      return downloadJson(res, 'openbot-skills.json', createSkillPack(await store.listSkills()));
+    }
+    if (url.pathname === '/api/skills/import' && req.method === 'POST') {
+      const payload = await body(req);
+      return json(res, 200, await importSkillPack(store, payload.pack || payload));
     }
     if (url.pathname.startsWith('/api/skills/') && req.method === 'GET') {
       const id = decodeURIComponent(url.pathname.slice('/api/skills/'.length));

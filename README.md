@@ -13,6 +13,7 @@ OpenBot is a free, open-source, local-first bot that turns a task into bounded, 
 - Workspace-scoped memory facts can be edited in place from the dashboard or CLI without changing their scope or durable identity.
 - Operator-owned local skills managed from the dashboard, API, or CLI; skills are explicit, bounded guidance and cannot grant tools or bypass approvals.
 - Local skill definitions can be edited from the dashboard or CLI without losing their durable identity or existing bot/routine references.
+- Portable skill packs can be exported or imported as versioned, bounded JSON from the dashboard, API, or CLI; imports are declarative, redacted, duplicate-safe, and never executable extensions.
 - Durable named local bots with a role, instructions, workspace, optional skill, and bounded conversation history managed from the dashboard, API, or CLI.
 - Named bot profiles can be edited from the dashboard or CLI, including role and instructions in the dashboard and workspace or selected skill through CLI, without losing profile history.
 - Local routines managed from the dashboard, API, or CLI; schedules are explicit, runs are durable, and Run now uses the same approval-safe agent loop.
@@ -72,6 +73,8 @@ node cli/openbot.mjs resume <task-id> --json
 node cli/openbot.mjs retry <task-id> --json
 node cli/openbot.mjs skill add --name release-check --instructions "Review tests and report release risks." --json
 node cli/openbot.mjs skill update <skill-id> --instructions "Review tests, report risks, and cite evidence." --json
+node cli/openbot.mjs skill export --json > openbot-skills.json
+node cli/openbot.mjs skill import ./openbot-skills.json --json
 node cli/openbot.mjs routine add --title "Workspace review" --schedule "daily 09:30" --workspace /path/to/project "Review the workspace and report risks." --json
 node cli/openbot.mjs start --detach --json
 node cli/openbot.mjs desktop --json
@@ -88,6 +91,8 @@ npm start
 `doctor --json` reports the requested and selected resource profile, agent caps, and whether container isolation is expected. Use `OPENBOT_RESOURCE_PROFILE=auto` for transparent hardware-based selection (legacy at 2 or fewer logical CPUs or below 8 GiB RAM), or choose `legacy`/`standard` explicitly. This changes bounded work limits; it cannot make a large local model fast enough for every laptop.
 
 The daemon also bounds task concurrency: the legacy profile permits one active task and four waiting tasks, while the standard profile permits two active tasks and eight waiting tasks. Configure `OPENBOT_MAX_CONCURRENT_TASKS` or `OPENBOT_MAX_QUEUED_TASKS` when needed; values are capped for predictable resource use. When the waiting queue is full, OpenBot returns a bounded queue-full response rather than accepting unbounded work.
+
+Skill packs use the `openbot.skill-pack` schema at version 1. Each pack is capped at 20 skills and 60 KiB; names, descriptions, and instructions are individually bounded and redacted. Existing names are skipped during import, and an empty export is valid. Packs contain text guidance only: they do not declare tools, permissions, code, or model requirements.
 
 Queued task admission is recorded in the durable event history. On a daemon restart, only tasks that were waiting in the queue are recovered automatically; a task that had already been admitted is left for explicit resume so a completed side effect is not silently repeated.
 

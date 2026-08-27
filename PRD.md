@@ -80,7 +80,7 @@ OpenBot should provide a practical middle path: real work through isolated worke
 - Approval records are attached to proposed actions and diffs, and the dashboard resumes the same task after an operator approves it.
 - Local routines can be created, scheduled, run immediately, paused, and audited with a bounded recent-run history.
 - No multi-user authorization, CSRF protection, or rate limiting exists; explicit non-loopback mode now requires a shared bearer token.
-- OAuth, MCP, plugins, collaboration, and full audit replay remain absent or incomplete; compatible provider routing, local declarative skills, and bounded routines are now supported.
+- OAuth, MCP, plugins, collaboration, and full audit replay remain absent or incomplete; compatible provider routing, local declarative skills, bounded versioned skill-pack import/export, and bounded routines are now supported.
 - State uses an append-only JSONL event log with a lock and legacy migration path; retention, multi-process recovery policy, and encrypted-at-rest storage remain future work.
 - The HTTP server remains intended for local operation; explicitly enabled LAN mode requires a shared bearer token, and public-internet exposure is outside the supported boundary.
 - CPU-only legacy mode is supported for core administration and allowlisted diagnostics; `OPENBOT_RESOURCE_PROFILE=auto` can select it at 2 or fewer logical CPUs or below 8 GiB RAM, while explicit `legacy` and `standard` overrides remain available. Natural-language reasoning still depends on an installed local model and may be too slow for some older laptops.
@@ -124,6 +124,7 @@ The first meaningful “bot, not control panel” milestone is implemented on th
 - Operators can optionally install or remove a per-user macOS or Linux daemon service, previewing the manifest with dry-run mode while retaining the portable detached fallback.
 - Operators can update named bot profiles through the local or shared-daemon CLI path without losing conversation history or task associations.
 - Operators can update reusable local skills through the local or shared-daemon CLI path without losing the durable skill identity selected by bots or routines.
+- Operators can export and import versioned declarative skill packs through the dashboard, API, or CLI; packs are size-limited, redacted, duplicate-safe, and cannot carry executable code, tools, or permissions.
 - Operators can update workspace-scoped memory facts through the local or shared-daemon CLI path without changing the originating workspace scope.
 - Operators can edit bot role/instructions, local skill definitions, and workspace-scoped memory facts from the dashboard without losing durable identity, bot/routine references, or memory scope.
 - Operators can pause, resume, or cancel controllable tasks from recent-task dashboard cards, with durable status transitions and refreshed activity history.
@@ -237,7 +238,7 @@ Acceptance criteria:
 ### P1 — fast follow
 
 - MCP server registry with signed/verified metadata, per-tool permissions, health checks, and disable/rollback.
-- Versioned skills with manifests, permission declarations, fixtures, tests, and import/export.
+- Versioned skill packs with bounded declarative import/export are supported; manifests, permission declarations, fixtures, and per-pack tests remain roadmap work.
 - Plugin SDK with process isolation and capability permissions.
 - Scheduler upgrades with timezone, missed-run policy, retry policy, and richer concurrency policies.
 - Browser worker using isolated profiles and domain policies.

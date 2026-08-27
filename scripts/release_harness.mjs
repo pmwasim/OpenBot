@@ -92,6 +92,7 @@ async function main() {
     'lib/task-result.mjs',
     'lib/task-artifacts.mjs',
     'lib/task-queue.mjs',
+    'lib/skill-packs.mjs',
     'lib/connectors.mjs',
     'lib/loopback.mjs',
     'lib/engine.mjs',
@@ -114,6 +115,7 @@ async function main() {
   const clientSource = await readFile(join(root, 'lib/client.mjs'), 'utf8');
   const configSource = await readFile(join(root, 'lib/config.mjs'), 'utf8');
   const queueSource = await readFile(join(root, 'lib/task-queue.mjs'), 'utf8');
+  const skillPackSource = await readFile(join(root, 'lib/skill-packs.mjs'), 'utf8');
   const policySource = await readFile(join(root, 'lib/policy.mjs'), 'utf8');
   const browserSource = await readFile(join(root, 'lib/workers/browser.mjs'), 'utf8');
   const engineSource = await readFile(join(root, 'lib/engine.mjs'), 'utf8');
@@ -124,6 +126,8 @@ async function main() {
   pass('failed-task retry is exposed across clients');
   if (!configSource.includes('maxConcurrentTasks') || !configSource.includes('maxQueuedTasks') || !serverSource.includes('createTaskQueue') || !serverSource.includes('scheduleTaskRun') || !serverSource.includes('recoverQueuedTaskRuns') || !queueSource.includes('maxQueueDepth') || !queueSource.includes('listRecoverableQueuedTasks') || !appSource.includes("started.status === 'queued'")) throw new Error('daemon task queue is not bounded across configuration, recovery, execution, and dashboard');
   pass('daemon task execution uses a bounded resource-aware queue');
+  if (!serverSource.includes('/api/skills/export') || !serverSource.includes('/api/skills/import') || !cliSource.includes("subcommand === 'export'") || !cliSource.includes("subcommand === 'import'") || !clientSource.includes('daemonExportSkills') || !clientSource.includes('daemonImportSkills') || !appSource.includes('skill-pack-file') || !appSource.includes('skill-pack-import') || !skillPackSource.includes('SKILL_PACK_LIMITS')) throw new Error('versioned skill packs are not exposed across clients');
+  pass('versioned declarative skill packs are exposed across clients');
   if (appSource.includes('e.innerHTML=`')) throw new Error('dashboard renders state with unsafe innerHTML');
   pass('dashboard exposes workspace, action cards, structured results, audit links, and downloadable task artifacts safely');
   if (!appSource.includes('editMemory') || !appSource.includes('editSkill') || !appSource.includes('editBot') || !appSource.includes('editConnector') || !appSource.includes("method: 'PATCH'") || !appSource.includes('Cancel') || !appSource.includes('Edit')) throw new Error('dashboard does not expose safe editing for bots, skills, memory, and connectors');
@@ -300,6 +304,7 @@ async function main() {
 
   const { loadConfig, publicConfig } = await import(pathToFileURL(join(root, 'lib/config.mjs')).href);
   const { createTaskQueue, TASK_QUEUE_LIMITS, listRecoverableQueuedTasks } = await import(pathToFileURL(join(root, 'lib/task-queue.mjs')).href);
+  const { createSkillPack, parseSkillPack, importSkillPack, SKILL_PACK_LIMITS } = await import(pathToFileURL(join(root, 'lib/skill-packs.mjs')).href);
   const queueCalls = [];
   let releaseQueue;
   const queueGate = new Promise((resolve) => { releaseQueue = resolve; });
@@ -474,6 +479,7 @@ async function main() {
   const agentWs = await mkdtemp(join(tmpdir(), 'openbot-agent-'));
   const daemonDataDir = await mkdtemp(join(tmpdir(), 'openbot-daemon-'));
   const clientDataDir = await mkdtemp(join(tmpdir(), 'openbot-client-'));
+  const protectedDataDir = await mkdtemp(join(tmpdir(), 'openbot-protected-'));
   const { openStore } = await import(pathToFileURL(join(root, 'lib/store.mjs')).href);
   const { createRoutineScheduler, nextRoutineRun, parseRoutineSchedule } = await import(pathToFileURL(join(root, 'lib/routines.mjs')).href);
   const { fileRead, fileWrite } = await import(pathToFileURL(join(root, 'lib/workers/file.mjs')).href);
@@ -559,6 +565,17 @@ async function main() {
     await freshStore.append({ type: 'task.queued', taskId: recoverable.task.id, payload: { status: 'pending', queueState: 'queued' } });
     if (!(await listRecoverableQueuedTasks(freshStore)).some((task) => task.id === recoverable.task.id)) throw new Error('queued task was not recoverable after restart');
     pass('queued task admission state survives daemon restart');
+    const skillPack = createSkillPack([{ name: 'portable-review', description: 'Portable review guidance', instructions: 'Review safely and redact token=sk-pack-secret.' }]);
+    const parsedSkillPack = parseSkillPack(JSON.stringify(skillPack));
+    if (parsedSkillPack.skills.length !== 1 || parsedSkillPack.skills[0].name !== 'portable-review' || parsedSkillPack.skills[0].instructions.includes('sk-pack-secret')) throw new Error(`skill pack parse ${JSON.stringify(parsedSkillPack)}`);
+    const importedSkills = await importSkillPack(freshStore, parsedSkillPack);
+    if (importedSkills.imported.length !== 1 || importedSkills.imported[0].name !== 'portable-review' || importedSkills.imported[0].instructions.includes('sk-pack-secret')) throw new Error(`skill pack import ${JSON.stringify(importedSkills)}`);
+    const skippedSkills = await importSkillPack(freshStore, parsedSkillPack);
+    if (skippedSkills.imported.length !== 0 || skippedSkills.skipped.length !== 1 || SKILL_PACK_LIMITS.maxSkills < 1) throw new Error(`skill pack duplicate handling ${JSON.stringify(skippedSkills)}`);
+    let invalidSkillPack = false;
+    try { parseSkillPack({ schema: 'wrong', skills: [] }); } catch (error) { invalidSkillPack = error.statusCode === 400; }
+    if (!invalidSkillPack) throw new Error('invalid skill pack accepted');
+    pass('skill packs are versioned, bounded, redacted, and duplicate-safe');
     const retryable = await first.createTask({ prompt: 'retry after local failure', kind: 'plan', workspace: fileWs });
     await first.append({ type: 'task.status', taskId: retryable.task.id, payload: { status: 'failed', error: 'temporary model failure' } });
     const retried = await first.setTaskStatus(retryable.task.id, 'retry');
@@ -609,6 +626,9 @@ async function main() {
     const cliSkillAdd = await runNode(['cli/openbot.mjs', 'skill', 'add', '--name', 'summarize', '--description', 'Summarize safely', '--instructions', 'Read relevant files and summarize findings.', '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
     const cliSkillAddJson = parseCliJson(cliSkillAdd.output);
     if (cliSkillAdd.code !== 0 || !cliSkillAddJson.skill?.id) throw new Error(`CLI skill add: ${cliSkillAdd.output}`);
+    const cliSkillExport = await runNode(['cli/openbot.mjs', 'skill', 'export', '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
+    const cliSkillExportJson = parseCliJson(cliSkillExport.output);
+    if (cliSkillExport.code !== 0 || cliSkillExportJson.schema !== 'openbot.skill-pack' || !cliSkillExportJson.skills?.some((skill) => skill.name === 'summarize')) throw new Error(`CLI skill export: ${cliSkillExport.output}`);
     const cliSkillUpdate = await runNode(['cli/openbot.mjs', 'skill', 'update', cliSkillAddJson.skill.id, '--description', 'Summarize safely and clearly', '--instructions', 'Read relevant files, summarize findings, and cite evidence.', '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
     const cliSkillUpdateJson = parseCliJson(cliSkillUpdate.output);
     if (cliSkillUpdate.code !== 0 || cliSkillUpdateJson.skill?.description !== 'Summarize safely and clearly') throw new Error(`CLI skill update: ${cliSkillUpdate.output}`);
@@ -618,7 +638,11 @@ async function main() {
     const cliSkillId = cliSkillListJson.skills.find((skill) => skill.name === 'summarize').id;
     const cliSkillDelete = await runNode(['cli/openbot.mjs', 'skill', 'delete', cliSkillId, '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
     if (cliSkillDelete.code !== 0) throw new Error(`CLI skill delete: ${cliSkillDelete.output}`);
-    pass('CLI skill add/list/delete manages reusable local instructions');
+    await writeFile(join(fileWs, 'skills.json'), JSON.stringify(cliSkillExportJson), 'utf8');
+    const cliSkillImport = await runNode(['cli/openbot.mjs', 'skill', 'import', join(fileWs, 'skills.json'), '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
+    const cliSkillImportJson = parseCliJson(cliSkillImport.output);
+    if (cliSkillImport.code !== 0 || cliSkillImportJson.imported?.[0]?.name !== 'summarize') throw new Error(`CLI skill import: ${cliSkillImport.output}`);
+    pass('CLI skill add/list/export/import/delete manages reusable local instructions');
     const cliBotAdd = await runNode(['cli/openbot.mjs', 'bot', 'add', '--name', 'CLI steward', '--role', 'Review local work', '--instructions', 'Review tests and report risks.', '--workspace', fileWs, '--json'], { OPENBOT_DATA_DIR: dataDir, HOST: '127.0.0.1' });
     const cliBotAddJson = parseCliJson(cliBotAdd.output);
     if (cliBotAdd.code !== 0 || !cliBotAddJson.bot?.id || cliBotAddJson.bot.name !== 'CLI steward') throw new Error(`CLI bot add: ${cliBotAdd.output}`);
@@ -862,6 +886,13 @@ async function main() {
       const skillList = await http('/api/skills');
       const skillListBody = JSON.parse(skillList.body);
       if (skillList.status !== 200 || skillListBody.skills?.[0]?.name !== 'release-check') throw new Error(`skill list ${skillList.status} ${skillList.body}`);
+      const skillExport = await http('/api/skills/export');
+      const exportedSkillPack = JSON.parse(skillExport.body);
+      exportedSkillPack.skills.push({ name: 'api-imported', description: 'Imported through the API', instructions: 'Use bounded local guidance.' });
+      const skillImport = await http('/api/skills/import', { method: 'POST', body: JSON.stringify({ pack: exportedSkillPack }) });
+      const skillImportBody = JSON.parse(skillImport.body);
+      if (skillExport.status !== 200 || !String(skillExport.headers['content-disposition']).includes('openbot-skills.json') || skillImport.status !== 200 || skillImportBody.imported?.[0]?.name !== 'api-imported') throw new Error(`skill pack API ${skillExport.status}/${skillImport.status} ${skillImport.body}`);
+      pass('skill pack API exports bounded JSON and imports declarative skills');
       const skillDelete = await http(`/api/skills/${encodeURIComponent(skillCreateBody.skill.id)}`, { method: 'DELETE' });
       if (skillDelete.status !== 200) throw new Error(`skill delete ${skillDelete.status} ${skillDelete.body}`);
       pass('skill API creates, lists, selects by durable id, and deletes local guidance');
@@ -1081,18 +1112,18 @@ async function main() {
       if (output.includes('EADDRINUSE')) throw new Error(output);
     }
 
-    const denied = await runNode(['server.mjs'], { HOST: '0.0.0.0', PORT: '4211', OPENBOT_DATA_DIR: dataDir }, { timeoutMs: 4000 });
+    const denied = await runNode(['server.mjs'], { HOST: '0.0.0.0', PORT: '4211', OPENBOT_DATA_DIR: protectedDataDir }, { timeoutMs: 4000 });
     if (denied.code === 0) throw new Error('server accepted non-loopback bind');
     if (!denied.output.includes('OPENBOT_ALLOW_NON_LOOPBACK')) throw new Error(denied.output || 'missing refuse message');
     pass('server refuses non-loopback bind without override');
     const unauthenticatedLan = await runNode(['server.mjs'], {
-      HOST: '0.0.0.0', PORT: '4212', OPENBOT_DATA_DIR: dataDir, OPENBOT_ALLOW_NON_LOOPBACK: '1'
+      HOST: '0.0.0.0', PORT: '4212', OPENBOT_DATA_DIR: protectedDataDir, OPENBOT_ALLOW_NON_LOOPBACK: '1'
     }, { timeoutMs: 4000 });
     if (unauthenticatedLan.code === 0 || !unauthenticatedLan.output.includes('OPENBOT_AUTH_TOKEN')) throw new Error(`server allowed unauthenticated LAN mode: ${unauthenticatedLan.output}`);
     pass('server refuses non-loopback mode without an authentication token');
     const protectedChild = spawn(process.execPath, ['server.mjs'], {
       cwd: root,
-      env: { ...process.env, HOST: '0.0.0.0', PORT: '4213', OPENBOT_DATA_DIR: dataDir, OPENBOT_ALLOW_NON_LOOPBACK: '1', OPENBOT_AUTH_TOKEN: 'harness-token' },
+      env: { ...process.env, HOST: '0.0.0.0', PORT: '4213', OPENBOT_DATA_DIR: protectedDataDir, OPENBOT_ALLOW_NON_LOOPBACK: '1', OPENBOT_AUTH_TOKEN: 'harness-token' },
       stdio: ['ignore', 'pipe', 'pipe']
     });
     let protectedOutput = '';
@@ -1401,6 +1432,7 @@ async function main() {
     await rm(browserWs, { recursive: true, force: true }).catch(() => {});
     await rm(daemonDataDir, { recursive: true, force: true }).catch(() => {});
     await rm(clientDataDir, { recursive: true, force: true }).catch(() => {});
+    await rm(protectedDataDir, { recursive: true, force: true }).catch(() => {});
   }
 
   const failed = checks.filter((check) => !check.ok);
